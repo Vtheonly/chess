@@ -1,0 +1,515 @@
+━━━ Move 1: e4 (white) ━━━
+FEN before : rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+FEN after  : rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+
+▸ Move Analysis (tactical)
+    UCI              : e2e4
+    SAN              : e4
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 0
+    (no concrete threats created)
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : False
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +1
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : +10
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'e7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 2: e5 (black) ━━━
+FEN before : rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+FEN after  : rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+
+▸ Move Analysis (tactical)
+    UCI              : e7e5
+    SAN              : e5
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 0
+    (no concrete threats created)
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : False
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +1
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : +9
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 3: Nf3 (white) ━━━
+FEN before : rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+FEN after  : rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
+
+▸ Move Analysis (tactical)
+    UCI              : g1f3
+    SAN              : Nf3
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 1
+    • Nxe5     → ++100 cp  on pawn at e5  [WINNING]
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : True
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +2
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : -2
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 4: Nc6 (black) ━━━
+FEN before : rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
+FEN after  : r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+
+▸ Move Analysis (tactical)
+    UCI              : b8c6
+    SAN              : Nc6
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 0
+    (no concrete threats created)
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : True
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +1
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : +2
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 5: Bc4 (white) ━━━
+FEN before : r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+FEN after  : r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+
+▸ Move Analysis (tactical)
+    UCI              : f1c4
+    SAN              : Bc4
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 0
+    (no concrete threats created)
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : True
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +0
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +1
+    mobility_delta          : +6
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 6: Nf6 (black) ━━━
+FEN before : r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+FEN after  : r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4
+
+▸ Move Analysis (tactical)
+    UCI              : g8f6
+    SAN              : Nf6
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 1
+    • Nxe4     → ++100 cp  on pawn at e4  [WINNING]
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : True
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +2
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : -2
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 7: Ng5 (white) ━━━
+FEN before : r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4
+FEN after  : r1bqkb1r/pppp1ppp/2n2n2/4p1N1/2B1P3/8/PPPP1PPP/RNBQK2R b KQkq - 5 4
+
+▸ Move Analysis (tactical)
+    UCI              : f3g5
+    SAN              : Ng5
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 1
+    • Nxf7     → ++100 cp  on pawn at f7  [WINNING]
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : False
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : -1
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +0
+    mobility_delta          : +5
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 8: Bc5 (black) ━━━
+FEN before : r1bqkb1r/pppp1ppp/2n2n2/4p1N1/2B1P3/8/PPPP1PPP/RNBQK2R b KQkq - 5 4
+FEN after  : r1bqk2r/pppp1ppp/2n2n2/2b1p1N1/2B1P3/8/PPPP1PPP/RNBQK2R w KQkq - 6 5
+
+▸ Move Analysis (tactical)
+    UCI              : f8c5
+    SAN              : Bc5
+    is_capture       : False
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +0 cp
+    is_winning_cap   : False
+    is_sacrifice     : False
+    concrete_threats : 0
+    (no concrete threats created)
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : True
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +0
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +1
+    mobility_delta          : +7
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    (all files closed)
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'f7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ Move 9: Nxf7 (white) ━━━
+FEN before : r1bqk2r/pppp1ppp/2n2n2/2b1p1N1/2B1P3/8/PPPP1PPP/RNBQK2R w KQkq - 6 5
+FEN after  : r1bqk2r/pppp1Npp/2n2n2/2b1p3/2B1P3/8/PPPP1PPP/RNBQK2R b KQkq - 0 5
+
+▸ Move Analysis (tactical)
+    UCI              : g5f7
+    SAN              : Nxf7
+    is_capture       : True
+    captured_piece   : pawn
+    is_check         : False
+    is_checkmate     : False
+    is_stalemate     : False
+    SEE score        : +100 cp
+    is_winning_cap   : True
+    is_sacrifice     : False
+    concrete_threats : 2
+    • Nxd8     → ++580 cp  on queen at d8  [WINNING]
+    • Nxh8     → ++500 cp  on rook at h8  [WINNING]
+
+▸ Strategic Features (positional)
+    is_outpost              : False
+    is_development          : False
+    occupies_open_file      : False
+    opens_open_file         : False
+    center_control_delta    : +0
+    isolated_pawn_delta     : +0
+    passed_pawn_delta       : +0
+    king_attackers_delta    : +1
+    mobility_delta          : +0
+
+▸ Outpost squares (after move)
+    (none)
+
+▸ Open / semi-open files (after move)
+    • file f: SEMI-B  whiteRooks=0 blackRooks=0  whiteQueens=0 blackQueens=0
+
+▸ Pawn structure (after move)
+    White (white):
+      total pawns     : 8
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a2', 'b2', 'c2', 'd2', 'f2', 'g2', 'h2']
+      pawn chains     : []
+      pawn islands    : 1
+
+    Black (black):
+      total pawns     : 7
+      isolated        : 0  files=[]
+      doubled         : 0  files=[]
+      backward        : 0  squares=[]
+      passed          : 0  squares=[]
+      phalanx squares : ['a7', 'b7', 'c7', 'd7', 'g7', 'h7']
+      pawn chains     : []
+      pawn islands    : 2
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

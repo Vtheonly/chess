@@ -1,0 +1,8 @@
+[Event "Italian Gambit demo"]
+[Site "CaissaXAI test suite"]
+[Date "2026.08.10"]
+[White "Gambit Tester"]
+[Black "Feature Extractor"]
+[Result "*"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 Bc5 5. Nxf7 *
