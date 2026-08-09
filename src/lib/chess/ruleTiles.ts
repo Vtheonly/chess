@@ -639,83 +639,250 @@ export interface HallucinationCheckResult {
   violations: string[];
 }
 
+// ---------------------------------------------------------------------------
+// ALLOWLIST of strategic concepts the LLM may mention.
+// Each entry maps a regex (concept detection) → required tile ID(s).
+// If the LLM mentions the concept but no matching tile fired → VIOLATION.
+//
+// This is the architectural fix for the "6-rule denylist" gap: instead of
+// listing every possible lie, we list every possible truth and reject
+// anything that doesn't map to a verified tile.
+// ---------------------------------------------------------------------------
+interface ConceptRule {
+  concept: string;                          // human-readable name
+  pattern: RegExp;                          // detects the concept in LLM text
+  requiredTileIds: string[];                // any of these tiles must be present
+  explanation: string;                      // why it's a violation if missing
+}
+
+const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
+  {
+    concept: 'piece development',
+    pattern: /\b(develop(?:s|ing|ment)?|brings?\s+(?:out|into\s+play)|undevelope)\b/i,
+    requiredTileIds: ['DEVELOPMENT'],
+    explanation: 'Piece development requires a minor piece (knight or bishop) to move from its home rank. Pawn moves like c6, d5, e6 do NOT develop pieces.',
+  },
+  {
+    concept: 'outpost',
+    pattern: /\boutpost\b/i,
+    requiredTileIds: ['KNIGHT_OUTPOST', 'BISHOP_OUTPOST'],
+    explanation: 'An outpost requires the destination square to be (a) on ranks 4-6 for White / 3-5 for Black, (b) defended by a friendly pawn, and (c) unchallengeable by any enemy pawn on adjacent files.',
+  },
+  {
+    concept: 'open file',
+    pattern: /\bopen\s+file\b|\bsemi-?open\s+file\b/i,
+    requiredTileIds: ['OPEN_FILE'],
+    explanation: 'An open file requires the destination file to contain zero pawns of either color, with a rook or queen occupying it.',
+  },
+  {
+    concept: 'sacrifice',
+    pattern: /\bsacrifice(?:s|d)?\b|\bgambit\b|\bgives?\s+up\s+(?:material|a\s+(?:pawn|piece))\b/i,
+    requiredTileIds: ['MATERIAL_LOSS'],
+    explanation: `A sacrifice requires SEE ≤ -150cp (real material given up). Current SEE = SEE_PLACEHOLDERcp.`,
+  },
+  {
+    concept: 'winning material',
+    pattern: /\bwins?\s+(?:material|a\s+(?:pawn|piece|knight|bishop|rook|queen))\b|\bcaptures?\s+(?:and\s+)?wins\b|\bgains?\s+(?:material|a\s+(?:pawn|piece))\b/i,
+    requiredTileIds: ['MATERIAL_GAIN'],
+    explanation: `Winning material requires SEE > 0cp. Current SEE = SEE_PLACEHOLDERcp.`,
+  },
+  {
+    concept: 'passed pawn',
+    pattern: /\bpassed\s+pawn\b/i,
+    requiredTileIds: ['PAWN_PASSED'],
+    explanation: 'A passed pawn requires no enemy pawns on the same file or adjacent files ahead of it.',
+  },
+  {
+    concept: 'isolated pawn',
+    pattern: /\bisolat(?:e|ed|ion)\b/i,
+    requiredTileIds: ['PAWN_ISOLATION'],
+    explanation: 'An isolated pawn has no friendly pawns on either adjacent file.',
+  },
+  {
+    concept: 'doubled pawns',
+    pattern: /\bdoubl(?:e|ed|ing)\s+pawns?\b/i,
+    requiredTileIds: ['PAWN_DOUBLED'],
+    explanation: 'Doubled pawns require two or more friendly pawns on the same file.',
+  },
+  {
+    concept: 'concrete threat / fork / pin',
+    pattern: /\b(threat(?:s|ening)?|fork|pin|double(?:-|\s)attack|hanging|attack(?:s|ing)?\s+(?:the\s+)?(?:queen|rook|bishop|knight|king))\b/i,
+    requiredTileIds: ['CONCRETE_THREAT', 'CHECK_DELIVERED'],
+    explanation: 'A concrete threat requires a winning capture (SEE ≥ 0) available after a null-move. No such capture was detected.',
+  },
+  {
+    concept: 'king attack / king safety',
+    pattern: /\b(king\s+(?:attack|safety|expos(?:e|ure)|vulnerab|weak)|attack(?:s|ing)?\s+(?:the\s+)?king|around\s+the\s+king|mating\s+(?:threat|attack|net))\b/i,
+    requiredTileIds: ['KING_ATTACK', 'KING_EXPOSURE', 'CHECK_DELIVERED'],
+    explanation: 'A king attack requires the mover to have gained ≥2 attackers in the enemy king zone, OR a king-safety penalty, OR a check.',
+  },
+  {
+    concept: 'center control',
+    pattern: /\b(center\s+(?:control|squares|play)|control\s+of\s+(?:the\s+)?center|central\s+(?:control|squares|outpost))\b/i,
+    requiredTileIds: ['CENTER_CONTROL'],
+    explanation: 'Center control requires a net increase in attacks on d4/d5/e4/e5.',
+  },
+  {
+    concept: 'check',
+    // Match "check" / "gives check" / "+" but NOT when preceded by negation ("no check", "without check")
+    pattern: /\b(?<!no\s)(?<!without\s)(?<!not\s)check(?:s|ing|mating)?\b|\bgives?\s+check\b|\b\+\s*$/mi,
+    requiredTileIds: ['CHECK_DELIVERED'],
+    explanation: 'A check requires the move to attack the enemy king.',
+  },
+  {
+    concept: 'mobility / activity',
+    pattern: /\b(mobility|active|activat(?:e|es|ing)|piece\s+activity|improves?\s+(?:the\s+)?position)\b/i,
+    requiredTileIds: ['MOBILITY_GAIN', 'DEVELOPMENT', 'OPEN_FILE', 'KNIGHT_OUTPOST', 'BISHOP_OUTPOST'],
+    explanation: 'Activity claims require a measurable increase: mobility gain ≥5 legal moves, piece development, open file control, or an outpost.',
+  },
+];
+
+// Concepts that are NOT yet covered by any tile — these are flagged as
+// "unverifiable" rather than "false", because we can't prove or disprove
+// them with the current symbolic engine.  The LLM should avoid them.
+const UNVERIFIABLE_CONCEPTS: ConceptRule[] = [
+  {
+    concept: 'bishop pair',
+    pattern: /\bbishop\s+pair\b|\btwo\s+bishops\b/i,
+    requiredTileIds: [],
+    explanation: 'The bishop pair advantage is not yet tracked by the symbolic engine. Avoid claiming it.',
+  },
+  {
+    concept: 'luft / king escape square',
+    pattern: /\bluft\b|\bking\s+(?:escape|flight)\s+square\b|\bmakes?\s+luft\b/i,
+    requiredTileIds: [],
+    explanation: 'Luft (creating a king escape square) is not yet tracked. Avoid claiming it.',
+  },
+  {
+    concept: 'prophylaxis',
+    pattern: /\bprophylax(?:is|tic)\b|\bprophylactic\b|\bprevent(?:s|ing)\s+(?:the\s+)?(?:opponent|enemy)\b/i,
+    requiredTileIds: [],
+    explanation: 'Prophylactic moves are not yet symbolically verified. Avoid the term "prophylaxis" unless describing a concrete prevented threat.',
+  },
+  {
+    concept: 'initiative / tempo',
+    pattern: /\b(initiative|tempo|gains?\s+(?:a\s+)?tempo|seize(?:s)?\s+the\s+initiative)\b/i,
+    requiredTileIds: [],
+    explanation: 'Initiative and tempo are not yet symbolically tracked. Avoid these terms.',
+  },
+  {
+    concept: 'space advantage',
+    pattern: /\bspace\s+(?:advantage|control|edge|gain)\b|\bmore\s+space\b/i,
+    requiredTileIds: [],
+    explanation: 'Space advantage is not yet tracked (only center control is). Avoid "space" claims.',
+  },
+  {
+    concept: 'backward pawn',
+    pattern: /\bbackward\s+pawn\b/i,
+    requiredTileIds: [],
+    explanation: 'Backward pawn detection is not yet implemented. Avoid the term.',
+  },
+  {
+    concept: 'trapped piece',
+    pattern: /\btrap(?:s|ped|ping)\s+(?:a\s+)?(?:the\s+)?(?:enemy\s+)?(?:piece|knight|bishop|rook|queen)\b|\btrapped\s+(?:piece|knight|bishop|rook|queen)\b/i,
+    requiredTileIds: [],
+    explanation: 'Trapped piece detection is not yet implemented. Avoid the claim.',
+  },
+  {
+    concept: 'bad bishop',
+    pattern: /\bbad\s+bishop\b/i,
+    requiredTileIds: [],
+    explanation: 'Bad bishop (blocked by own pawns) detection is not yet implemented. Avoid the claim.',
+  },
+  {
+    concept: 'rook lift / rook on the 7th',
+    pattern: /\brook\s+(?:lift|on\s+the\s+7th|seventh)|\b7th\s+rank\s+(?:rook|domination)\b/i,
+    requiredTileIds: [],
+    explanation: 'Rook lift / 7th-rank domination is not yet tracked. Avoid the claim.',
+  },
+  {
+    concept: 'overloaded piece',
+    pattern: /\boverload(?:ed|ing)\s+piece\b/i,
+    requiredTileIds: [],
+    explanation: 'Overloaded piece detection is not yet implemented. Avoid the claim.',
+  },
+  {
+    concept: 'zugzwang',
+    pattern: /\bzugzwang\b/i,
+    requiredTileIds: [],
+    explanation: 'Zugzwang detection is not yet implemented. Avoid the term.',
+  },
+  {
+    concept: 'opposition',
+    pattern: /\bopposition\b/i,
+    requiredTileIds: [],
+    explanation: 'King opposition detection is not yet implemented. Avoid the term.',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// MAIN FILTER — allowlist-based.
+//   For every concept the LLM mentions:
+//     • If it's in the allowlist → require a matching tile (else violation)
+//     • If it's in the unverifiable list → flag as "unverifiable concept"
+//     • If no tiles fired at all → restrict LLM to tactical facts only
+// ---------------------------------------------------------------------------
 export function checkNarrativeAgainstTiles(
   narrative: string,
   tiles: AtomicRuleTile[],
   input: SynthesizerInput,
 ): HallucinationCheckResult {
   const violations: string[] = [];
-  const text = narrative.toLowerCase();
+  const text = narrative;
 
-  // Rule 1: If text claims "develops [piece]" but no DEVELOPMENT tile fired, flag it.
-  const mentionsDevelopment = /\b(develop(?:s|ing|ment)?|brings?\s+(?:out|into\s+play))\b/.test(text) ||
-    /\b(?:knight|bishop)\s+(?:to|onto)\b/.test(text);
-  const hasDevelopmentTile = tiles.some(t => t.ruleId === 'DEVELOPMENT');
-  if (mentionsDevelopment && !hasDevelopmentTile && !input.isCapture) {
-    // Did the moved piece actually develop? Verify with the engine.
-    const board = new Chess(input.fenBefore);
-    const movedPiece = board.get(input.moveUci.slice(0, 2) as Square);
-    if (!movedPiece || (movedPiece.type !== 'n' && movedPiece.type !== 'b')) {
-      violations.push(
-        `Text mentions piece development, but ${input.moveSan} is not a developing move (no minor piece moved from home rank).`
-      );
-    } else {
-      const homeRank = movedPiece.color === 'w' ? 1 : 8;
-      const fromRank = parseInt(input.moveUci[1], 10);
-      if (fromRank !== homeRank) {
-        violations.push(
-          `Text mentions development, but the ${movedPiece.type} did not move from its home rank.`
-        );
+  // ─── Empty-tiles fallback ─────────────────────────────────────────────
+  // If NO tiles fired, the LLM may only mention tactical facts (eval delta,
+  // capture/no-capture, check/mate).  Any strategic claim is a violation.
+  if (tiles.length === 0) {
+    const strategicClaim = STRATEGIC_CONCEPT_ALLOWLIST.some(rule => rule.pattern.test(text));
+    const unverifiableClaim = UNVERIFIABLE_CONCEPTS.some(rule => rule.pattern.test(text));
+    if (strategicClaim || unverifiableClaim) {
+      // Identify which concepts were mentioned
+      const mentioned: string[] = [];
+      for (const rule of [...STRATEGIC_CONCEPT_ALLOWLIST, ...UNVERIFIABLE_CONCEPTS]) {
+        if (rule.pattern.test(text)) mentioned.push(rule.concept);
       }
-    }
-  }
-
-  // Rule 2: If text claims the *played move* is a pawn move but the moved
-  // piece was not a pawn, flag.  We use very specific phrasings to avoid
-  // false positives on incidental mentions of pawns (e.g. "supports future
-  // pawn advances" is fine — it doesn't claim the current move is a pawn move).
-  const claimsPawnMove = /\b(?:this\s+(?:is\s+a\s+)?pawn\s+(?:move|push|advance)|plays?\s+(?:a\s+)?pawn\s+(?:move|push|advance)|\b(?:it|this)\s+is\s+(?:a\s+)?pawn\b)/.test(text);
-  if (claimsPawnMove) {
-    const board = new Chess(input.fenBefore);
-    const movedPiece = board.get(input.moveUci.slice(0, 2) as Square);
-    if (movedPiece && movedPiece.type !== 'p') {
       violations.push(
-        `Text describes the played move as a pawn move, but ${input.moveSan} moves a ${movedPiece.type.toUpperCase()}.`
+        `No atomic rule tiles fired for this move (it is a quiet move with no detected strategic feature). ` +
+        `The LLM mentioned: ${mentioned.join(', ')}. ` +
+        `When no tiles fire, commentary must be restricted to tactical facts only (eval change, capture status, check status) — not strategic concepts.`
       );
     }
   }
 
-  // Rule 3: If text claims "open file" but no OPEN_FILE tile fired, flag.
-  const mentionsOpenFile = /\bopen\s+file\b/.test(text);
-  const hasOpenFileTile = tiles.some(t => t.ruleId === 'OPEN_FILE');
-  if (mentionsOpenFile && !hasOpenFileTile) {
-    violations.push(
-      `Text mentions "open file", but no open file control was detected by the symbolic engine.`
-    );
+  // ─── Allowlist enforcement ────────────────────────────────────────────
+  for (const rule of STRATEGIC_CONCEPT_ALLOWLIST) {
+    if (!rule.pattern.test(text)) continue;
+    const hasTile = rule.requiredTileIds.some(id => tiles.some(t => t.ruleId === id));
+    if (!hasTile) {
+      // Special-case: sacrifice / winning-material use SEE in the explanation
+      let explanation = rule.explanation;
+      if (explanation.includes('SEE_PLACEHOLDER')) {
+        explanation = explanation.replace(/SEE_PLACEHOLDER/g, String(input.seeScore));
+      }
+      // Special-case: check is allowed if input.isCheck is true (even without tile, e.g. mate)
+      if (rule.concept === 'check' && input.isCheck) continue;
+      // Special-case: development is allowed if the move actually developed (verify with engine)
+      if (rule.concept === 'piece development') {
+        const board = new Chess(input.fenBefore);
+        const movedPiece = board.get(input.moveUci.slice(0, 2) as Square);
+        if (movedPiece && (movedPiece.type === 'n' || movedPiece.type === 'b')) {
+          const homeRank = movedPiece.color === 'w' ? 1 : 8;
+          const fromRank = parseInt(input.moveUci[1], 10);
+          if (fromRank === homeRank) continue;  // actually did develop — don't flag
+        }
+      }
+      violations.push(
+        `LLM mentioned "${rule.concept}" but no corresponding tile fired. ${explanation}`
+      );
+    }
   }
 
-  // Rule 4: If text claims "outpost" but no KNIGHT_OUTPOST / BISHOP_OUTPOST tile fired.
-  const mentionsOutpost = /\boutpost\b/.test(text);
-  const hasOutpostTile = tiles.some(t => t.ruleId === 'KNIGHT_OUTPOST' || t.ruleId === 'BISHOP_OUTPOST');
-  if (mentionsOutpost && !hasOutpostTile) {
+  // ─── Unverifiable concept warning ─────────────────────────────────────
+  for (const rule of UNVERIFIABLE_CONCEPTS) {
+    if (!rule.pattern.test(text)) continue;
     violations.push(
-      `Text mentions "outpost", but the destination square did not satisfy the outpost criteria (pawn support + no enemy pawn attack).`
-    );
-  }
-
-  // Rule 5: If text claims "sacrifice" but SEE ≥ -150, flag.
-  const mentionsSacrifice = /\bsacrifice\b/.test(text);
-  if (mentionsSacrifice && input.seeScore > -150) {
-    violations.push(
-      `Text mentions "sacrifice", but the Static Exchange Evaluation is ${input.seeScore}cp (≥ -150 threshold), so it is not a real material sacrifice.`
-    );
-  }
-
-  // Rule 6: If text claims "wins material" but SEE ≤ 0.
-  const mentionsWinningMaterial = /\bwins?\s+(?:material|a\s+(?:pawn|piece|knight|bishop|rook|queen))\b/.test(text);
-  if (mentionsWinningMaterial && input.seeScore <= 0 && !input.isCheckmate) {
-    violations.push(
-      `Text claims material is won, but SEE = ${input.seeScore}cp — the exchange does not net material.`
+      `LLM mentioned "${rule.concept}" which is not yet tracked by the symbolic engine. ${rule.explanation}`
     );
   }
 
