@@ -1,0 +1,911 @@
+     1→# CAISSAXAI-UI & GAMEHUB: FRONTEND, INTERACTIVE GAMEPLAY, SELF-PLAY & PGN IMPORT ANALYSIS ENGINE
+     2→## MASTER ENGINEERING SPECIFICATION & FULL-STACK INTERFACE BLUEPRINT
+     3→
+     4→**Document Version:** 1.0.0  
+     5→**Status:** Approved for Autonomous Agent Implementation  
+     6→**Target Stack:** Next.js 14+ (App Router) / TypeScript 5+ / Tailwind CSS / Zustand / WebSocket / FastAPI / `react-chessboard` / Recharts  
+     7→
+     8→---
+     9→
+    10→## 1. SYSTEM OVERVIEW & UI/UX CHARTER
+    11→
+    12→### 1.1 Objective & Scope
+    13→This specification details the full-stack interactive application layer for **CaissaXAI**. It encompasses the responsive web frontend, real-time board rendering, interactive gameplay engines, WebSocket streaming protocols, move classification algorithms, game review dashboards, and the conversational coaching interface.
+    14→
+    15→The system MUST provide three operational game modes:
+    16→1. **Mode A: Human vs AI (Coached Play):** Real-time interactive match against Stockfish at a selectable playing Elo, accompanied by instant per-move narrative coaching at a selectable explanation Elo.
+    17→2. **Mode B: AI vs AI (Self-Play Simulation):** Automated match between two configurable AI profiles (e.g., 800 Elo vs 1800 Elo) with live streaming commentary explaining the unfolding strategic dynamic.
+    18→3. **Mode C: Deep PGN Import & Game Review:** Batch analysis of imported games (PGN or FEN), featuring progress tracking, an interactive evaluation graph, move classification badges (Brilliant, Great, Best, Inaccuracy, Mistake, Blunder), and exportable annotated PGNs.
+    19→
+    20→```
+    21→┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+    22→│                                       CAISSAXAI-UI / GAMEHUB ARCHITECTURE                                        │
+    23→│                                                                                                                  │
+    24→│  ┌───────────────────────┐   ┌────────────────────────┐   ┌────────────────────────┐   ┌──────────────────────┐  │
+    25→│  │    Mode A: Human vs   │   │  Mode B: AI vs AI      │   │ Mode C: Import & Deep  │   │  Interactive Board   │  │
+    26→│  │    AI Coached Play    │   │  Self-Play Simulator   │   │ Game Review Dashboard  │   │   & SVG Arrows       │  │
+    27→│  └───────────┬───────────┘   └───────────┬────────────┘   └───────────┬────────────┘   └──────────┬───────────┘  │
+    28→│              │                           │                            │                           │              │
+    29→│              └───────────────────┬───────┴────────────┬───────────────┘                           │              │
+    30→│                                  │                    │                                           │              │
+    31→│                                  ▼                    ▼                                           │              │
+    32→│                     ┌────────────────────────┐    ┌────────────────────────┐                      │              │
+    33→│                     │ Zustand UI State Store │ ◄──┤ Interactive Event Bus  ├──────────────────────┘              │
+    34→│                     └───────────┬────────────┘    └────────────────────────┘                                     │
+    35→│                                 │                                                                                │
+    36→│                                 ▼                                                                                │
+    37→│                     ┌────────────────────────┐                                                                   │
+    38→│                     │  WebSocket & REST API  │                                                                   │
+    39→│                     └───────────┬────────────┘                                                                   │
+    40→└─────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────┘
+    41→                                  │ (Real-Time Bidirectional Transport)
+    42→                                  ▼
+    43→┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+    44→│                                       BACKEND CAISSAXAI ANALYSIS CORE                                            │
+    45→└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    46→```
+    47→
+    48→---
+    49→
+    50→## 2. PROJECT REPOSITORY STRUCTURE (FRONTEND + EXTENSIONS)
+    51→
+    52→The autonomous agent must construct the frontend and API extension repository using the directory structure below:
+    53→
+    54→```text
+    55→caissaxai-web/
+    56→├── package.json
+    57→├── tsconfig.json
+    58→├── tailwind.config.js
+    59→├── next.config.mjs
+    60→├── public/
+    61→│   ├── sound/
+    62→│   │   ├── move.mp3
+    63→│   │   ├── capture.mp3
+    64→│   │   ├── check.mp3
+    65→│   │   ├── castle.mp3
+    66→│   │   └── promote.mp3
+    67→│   └── pieces/ (Custom SVG chess piece sets)
+    68→├── src/
+    69→│   ├── app/
+    70→│   │   ├── layout.tsx
+    71→│   │   ├── page.tsx (Home / Mode Selector)
+    72→│   │   ├── play/
+    73→│   │   │   └── page.tsx (Mode A: Human vs AI)
+    74→│   │   ├── simulate/
+    75→│   │   │   └── page.tsx (Mode B: AI vs AI)
+    76→│   │   └── review/
+    77→│   │       └── page.tsx (Mode C: PGN Import & Analysis)
+    78→│   ├── components/
+    79→│   │   ├── board/
+    80→│   │   │   ├── ChessboardContainer.tsx
+    81→│   │   │   ├── EvalBar.tsx
+    82→│   │   │   ├── ArrowOverlay.tsx
+    83→│   │   │   └── SquareHighlight.tsx
+    84→│   │   ├── game/
+    85→│   │   │   ├── MoveHistoryTable.tsx
+    86→│   │   │   ├── PlayerHeader.tsx
+    87→│   │   │   ├── GameControls.tsx
+    88→│   │   │   └── ClassificationBadge.tsx
+    89→│   │   ├── commentary/
+    90→│   │   │   ├── NarrativePanel.tsx
+    91→│   │   │   ├── CoachChatDrawer.tsx
+    92→│   │   │   └── ThreatList.tsx
+    93→│   │   ├── review/
+    94→│   │   │   ├── EvalChart.tsx
+    95→│   │   │   ├── PgnImportModal.tsx
+    96→│   │   │   ├── AccuracySummary.tsx
+    97→│   │   │   └── ExportDialog.tsx
+    98→│   │   └── ui/ (Design System: Buttons, Modals, Tabs, Selects)
+    99→│   ├── store/
+   100→│   │   ├── useGameStore.ts
+   101→│   │   ├── useAnalysisStore.ts
+   102→│   │   └── useSettingsStore.ts
+   103→│   ├── services/
+   104→│   │   ├── api.ts
+   105→│   │   ├── websocket.ts
+   106→│   │   └── audio.ts
+   107→│   ├── types/
+   108→│   │   ├── chess.ts
+   109→│   │   ├── api.ts
+   110→│   │   └── store.ts
+   111→│   └── utils/
+   112→│       ├── chessHelpers.ts
+   113→│       ├── moveClassification.ts
+   114→│       └── pgnFormatter.ts
+   115→```
+   116→
+   117→---
+   118→
+   119→## 3. FULL STATE MACHINE & ZUSTAND STORE SPECIFICATIONS
+   120→
+   121→### 3.1 Game Mode State Machine
+   122→The client state machine governs transition logic between modes and sub-states:
+   123→
+   124→```
+   125→                  ┌────────────────────────┐
+   126→                  │     IDLE / SELECT      │
+   127→                  └───────────┬────────────┘
+   128→                              │
+   129→       ┌──────────────────────┼──────────────────────┐
+   130→       │ (Select Mode A)      │ (Select Mode B)      │ (Select Mode C)
+   131→       ▼                      ▼                      ▼
+   132→┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+   133→│  HUMAN_VS_AI │       │   SIMULATE   │       │ IMPORT_REVIEW│
+   134→└──────┬───────┘       └──────┬───────┘       └──────┬───────┘
+   135→       │                      │                      │
+   136→       ├── Player Move        ├── Auto Step          ├── Upload PGN
+   137→       ├── AI Response        ├── Pause/Play         ├── Batch Analyze
+   138→       └── Live Coach         └── Live Commentary    └── Dashboard
+   139→```
+   140→
+   141→### 3.2 Main Store Schema (`useGameStore.ts`)
+   142→
+   143→```typescript
+   144→// Zustand Store State Interface Definition
+   145→
+   146→export type GameMode = 'HUMAN_VS_AI' | 'SIMULATE' | 'IMPORT_REVIEW';
+   147→export type PlayerColor = 'white' | 'black';
+   148→export type MoveClassification = 
+   149→  | 'BRILLIANT' 
+   150→  | 'GREAT' 
+   151→  | 'BEST' 
+   152→  | 'EXCELLENT' 
+   153→  | 'GOOD' 
+   154→  | 'BOOK' 
+   155→  | 'INACCURACY' 
+   156→  | 'MISTAKE' 
+   157→  | 'BLUNDER' 
+   158→  | 'MISS';
+   159→
+   160→export interface MoveRecord {
+   161→  ply: number;
+   162→  moveNumber: number;
+   163→  turn: PlayerColor;
+   164→  san: string;
+   165→  uci: string;
+   166→  fenBefore: string;
+   167→  fenAfter: string;
+   168→  evalCp: number;
+   169→  evalType: 'cp' | 'mate';
+   170→  winChance: number;
+   171→  classification?: MoveClassification;
+   172→  commentary?: string;
+   173→  arrows?: Array<[string, string, string]>; // [from, to, color]
+   174→  highlights?: Array<[string, string]>; // [square, color]
+   175→}
+   176→
+   177→export interface GameStoreState {
+   178→  // Config State
+   179→  mode: GameMode;
+   180→  playerColor: PlayerColor;
+   181→  aiPlayElo: number; // Elo used by Stockfish for engine moves
+   182→  coachElo: number;  // Elo used by LLM Narrator for commentary
+   183→  autoPlaySpeedMs: number;
+   184→  
+   185→  // Active Board State
+   186→  fen: string;
+   187→  moveHistory: MoveRecord[];
+   188→  currentPly: number;
+   189→  selectedSquare: string | null;
+   190→  legalMoves: string[];
+   191→  
+   192→  // Game Status
+   193→  isEngineThinking: boolean;
+   194→  isGameActive: boolean;
+   195→  isPaused: boolean;
+   196→  gameResult: string | null; // "1-0", "0-1", "1/2-1/2"
+   197→  
+   198→  // Real-time Visuals
+   199→  activeArrows: Array<[string, string, string]>;
+   200→  activeHighlights: Array<[string, string]>;
+   201→  
+   202→  // Actions
+   203→  setMode: (mode: GameMode) => void;
+   204→  makeMove: (uci: string) => Promise<boolean>;
+   205→  navigateToPly: (ply: number) => void;
+   206→  resetGame: () => void;
+   207→  startSelfPlay: () => void;
+   208→  pauseSelfPlay: () => void;
+   209→  importPgn: (pgn: string) => Promise<void>;
+   210→  setAiElo: (playElo: number, coachElo: number) => void;
+   211→}
+   212→```
+   213→
+   214→---
+   215→
+   216→## 4. MOVE CLASSIFICATION & ACCURACY ALGORITHMS
+   217→
+   218→### 4.1 Win Chance Conversion Formula
+   219→To calculate move accuracy and classification fairly across all phases of the game, raw centipawn evaluations must be converted to a **Win Chance Probability** $W \in [0.0, 1.0]$ using the Lichess/Stockfish sigmoid formula:
+   220→
+   221→$$W = \frac{1}{1 + 10^{-\text{cp} / 400.0}}$$
+   222→
+   223→If the evaluation is a mate score:
+   224→* $\text{Mate in } +N \implies W = 1.0 - (N \times 0.01)$
+   225→* $\text{Mate in } -N \implies W = 0.0 + (N \times 0.01)$
+   226→
+   227→### 4.2 Move Classification Algorithm
+   228→For a move played at ply $P$, calculate $\Delta W = W_{\text{after}} - W_{\text{before}}$ (from the perspective of the player making the move).
+   229→
+   230→```
+   231→FUNCTION classify_move(board_before, played_move, best_move, eval_before, eval_after, see_score):
+   232→    W_before = win_chance(eval_before)
+   233→    W_after = win_chance(eval_after)
+   234→    delta_W = W_after - W_before  # Negative value represents accuracy drop
+   235→
+   236→    # 1. Check for BEST or BOOK
+   237→    IF played_move == best_move:
+   238→        RETURN "BEST"
+   239→        
+   240→    # 2. Check for BRILLIANT
+   241→    # Definition: Material sacrifice (SEE < -150) that is either the best move 
+   242→    # or maintains win chance within 3% of best move.
+   243→    IF is_sacrifice(board_before, played_move) AND see_score < -150 AND delta_W >= -0.03:
+   244→        RETURN "BRILLIANT"
+   245→        
+   246→    # 3. Check for GREAT
+   247→    # Definition: The ONLY move that preserves a winning/equal position when all other moves lose >20% win chance.
+   248→    IF is_only_viable_move(board_before, played_move, second_best_delta_W) AND delta_W >= -0.02:
+   249→        RETURN "GREAT"
+   250→
+   251→    # 4. Standard Win Chance Drop Classifications
+   252→    IF delta_W >= -0.02:
+   253→        RETURN "EXCELLENT"
+   254→    ELSE IF delta_W >= -0.05:
+   255→        RETURN "GOOD"
+   256→    ELSE IF delta_W >= -0.10:
+   257→        RETURN "INACCURACY"
+   258→    ELSE IF delta_W >= -0.20:
+   259→        RETURN "MISTAKE"
+   260→    ELSE:
+   261→        # Check if a winning tactic was completely missed
+   262→        IF W_before >= 0.70 AND W_after < 0.50:
+   263→            RETURN "MISS"
+   264→        RETURN "BLUNDER"
+   265→```
+   266→
+   267→### 4.3 Game Accuracy Percentage Formula
+   268→For a game with $N$ moves played by a player, calculate move accuracy percentage $A$ as:
+   269→
+   270→$$A = 100 \times \frac{1}{N} \sum_{i=1}^{N} \left( 1.031668 \times e^{-0.04354 \times (\Delta W_i \times 100)^2} - 0.031668 \right)$$
+   271→
+   272→---
+   273→
+   274→## 5. MODE A: INTERACTIVE HUMAN VS AI (COACHED PLAY)
+   275→
+   276→### 5.1 Workflow & Execution Loop
+   277→1. Player sets **Player Color** (White/Black), **AI Play Elo** (800–2800), and **Coach Elo** (800, 1200, 1500, 1800+).
+   278→2. If Player is Black, engine immediately executes first move as White.
+   279→3. Player selects square $\rightarrow$ Frontend highlights legal move target squares.
+   280→4. Player executes drag-and-drop or click-click move $\rightarrow$ Frontend optimistically plays move, triggers audio, and requests backend validation.
+   281→5. Backend verifies move legality, updates Stockfish analysis, extracts Layer 2 symbolic deltas, updates Layer 3 memory stack, calls Layer 5 LLM Narrator, and streams response back over WebSocket.
+   282→6. Frontend updates Board, Eval Bar, Move Table, and Narrative Panel simultaneously.
+   283→7. Backend triggers Stockfish to compute AI's counter-move (scaled to selected AI Play Elo via Stockfish UCI limit parameters `UCI_LimitStrength` and `UCI_Elo`).
+   284→8. AI move is executed on board $\rightarrow$ Audio plays $\rightarrow$ AI move analysis streams in.
+   285→
+   286→### 5.2 Stockfish Elo Scaling Execution
+   287→To restrict Stockfish's playing strength for human play, the backend UCI process must be configured per move:
+   288→
+   289→```python
+   290→# Stockfish UCI Strength Reduction Protocol
+   291→def configure_engine_elo(engine_process, play_elo: int):
+   292→    if play_elo >= 2800:
+   293→        engine_process.send_command("setoption name UCI_LimitStrength value false")
+   294→    else:
+   295→        engine_process.send_command("setoption name UCI_LimitStrength value true")
+   296→        engine_process.send_command(f"setoption name UCI_Elo value {play_elo}")
+   297→```
+   298→
+   299→---
+   300→
+   301→## 6. MODE B: AI VS AI (SELF-PLAY SIMULATION)
+   302→
+   303→### 6.1 Workflow & Simulation Engine
+   304→1. User configures **White AI Elo** (e.g., 1000) and **Black AI Elo** (e.g., 2200).
+   305→2. User sets **Auto-Play Interval** (500ms to 5000ms).
+   306→3. User clicks **"Start Simulation"**.
+   307→4. Loop executes over WebSocket:
+   308→   * Backend requests Stockfish move for White (at White Elo).
+   309→   * Move executed $\rightarrow$ Full analysis + Layer 2 Deltas + Layer 5 Narrative generated.
+   310→   * Frame broadcast to client $\rightarrow$ Client animates move, updates eval bar, appends narrative.
+   311→   * Delay `autoPlaySpeedMs`.
+   312→   * Backend requests Stockfish move for Black (at Black Elo).
+   313→   * Repeat until Checkmate, Stalemate, or 3-fold repetition.
+   314→5. User can click **Pause**, **Step Forward**, **Step Backward**, or **Modify Elo Mid-Game**.
+   315→
+   316→---
+   317→
+   318→## 7. MODE C: DEEP PGN IMPORT & BATCH GAME REVIEW
+   319→
+   320→### 7.1 Import Modal & Parsing Logic
+   321→- Ingests raw text paste, file upload (`.pgn`), or Lichess/Chess.com URL.
+   322→- Sanitizes headers, strips invalid characters, extracts moves using `python-chess`.
+   323→- Validates game completeness before sending to analysis queue.
+   324→
+   325→### 7.2 Batch Analysis & WebSocket Progress Protocol
+   326→For a game with $N$ plies, the backend executes batch processing:
+   327→
+   328→```json
+   329→// WebSocket Progress Event Schema (Server -> Client)
+   330→{
+   331→  "event": "ANALYSIS_PROGRESS",
+   332→  "data": {
+   333→    "game_id": "uuid-v4",
+   334→    "total_plies": 62,
+   335→    "completed_plies": 24,
+   336→    "percent_complete": 38.7,
+   337→    "current_move_san": "Nf3",
+   338→    "current_eval_cp": 45
+   339→  }
+   340→}
+   341→```
+   342→
+   343→### 7.3 Dashboard Component Requirements
+   344→Upon 100% completion, the review screen renders:
+   345→1. **Header Cards:** Overall Accuracy % (White & Black), Total Blunders, Mistakes, Inaccuracies, Brilliant Moves.
+   346→2. **Interactive Eval Chart:** Line chart (Recharts) plotting Centipawn Eval vs Ply. Clicking any point on the chart jumps the board directly to that ply.
+   347→3. **Move Table with Badges:** Color-coded classification pills next to every SAN move.
+   348→4. **Annotated PGN Export Button:** Exports standard PGN string containing NAG symbols (`$1`, `$2`, `$3`, `$4`) and inline commentary brackets `{ [CaissaXAI]: ... }`.
+   349→
+   350→---
+   351→
+   352→## 8. BOARD VISUALIZATION, OVERLAYS & ARROW DRAWING SYSTEM
+   353→
+   354→### 8.1 SVG Arrow Overlay Engine
+   355→The board must support drawing dynamic SVG arrows for threats, best moves, and alternative lines:
+   356→
+   357→```typescript
+   358→// Arrow Color Standards
+   359→export const ARROW_COLORS = {
+   360→  BEST_MOVE: 'rgba(0, 200, 83, 0.85)',     // Bright Green
+   361→  CONCRETE_THREAT: 'rgba(215, 38, 56, 0.85)',// Crimson Red
+   362→  ALT_VARIATION: 'rgba(255, 170, 0, 0.75)',  // Amber / Yellow
+   363→  PROPHYLAXIS: 'rgba(33, 150, 243, 0.80)'   // Royal Blue
+   364→};
+   365→
+   366→export interface SVGArrowProps {
+   367→  fromSquare: string; // "e2"
+   368→  toSquare: string;   // "e4"
+   369→  color: string;
+   370→}
+   371→```
+   372→
+   373→### 8.2 Square Highlighting Matrix
+   374→- **Last Move:** Pale blue/yellow tint on source and target squares.
+   375→- **Selected Piece:** Vibrant yellow outline.
+   376→- **King in Check:** Pulsing radial red gradient.
+   377→- **Hover/Legal Targets:** Semi-transparent green circles (for empty squares) or green ring outlines (for enemy capture targets).
+   378→
+   379→---
+   380→
+   381→## 9. REAL-TIME WEBSOCKET & STREAMING PROTOCOL
+   382→
+   383→### 9.1 Bidirectional Message Contract
+   384→
+   385→```typescript
+   386→// Client -> Server Messages
+   387→export type ClientWSMessage =
+   388→  | { type: 'MAKE_MOVE'; payload: { uci: string; elo: number } }
+   389→  | { type: 'START_SIMULATION'; payload: { whiteElo: number; blackElo: number; speedMs: number } }
+   390→  | { type: 'PAUSE_SIMULATION' }
+   391→  | { type: 'START_GAME_REVIEW'; payload: { pgn: string; depth: number; targetElo: number } }
+   392→  | { type: 'ASK_COACH_QUESTION'; payload: { question: string; currentPly: number } };
+   393→
+   394→// Server -> Client Messages
+   395→export type ServerWSMessage =
+   396→  | { type: 'MOVE_ANALYZED'; payload: MoveRecord }
+   397→  | { type: 'SIMULATION_STEP'; payload: { move: MoveRecord; nextTurn: PlayerColor } }
+   398→  | { type: 'REVIEW_PROGRESS'; payload: { completed: number; total: number; percent: number } }
+   399→  | { type: 'REVIEW_COMPLETE'; payload: { summary: GameReviewSummary; records: MoveRecord[] } }
+   400→  | { type: 'COACH_ANSWER'; payload: { answerText: string; suggestedMoves?: string[] } }
+   401→  | { type: 'ERROR'; payload: { code: string; message: string } };
+   402→```
+   403→
+   404→---
+   405→
+   406→## 10. COMMENTARY, NARRATIVE & FOLLOW-UP CHAT DRAWER
+   407→
+   408→### 10.1 Interactive "Ask the Coach" Panel
+   409→In all modes, the user must be able to open a sliding side drawer and ask arbitrary follow-up questions about the current position.
+   410→
+   411→#### Chat Context Payload Construction
+   412→When the user submits a question (*"Why can't I just take the pawn on d5?"*), the frontend sends a request containing:
+   413→1. Current FEN
+   414→2. Current Ply Move Record
+   415→3. The specific user question
+   416→
+   417→The backend passes this to Layer 5, which injects the Stockfish SEE valuation for `...Nxd5` or `...Qxd5` to prove why taking the pawn fails, returning a direct, conversational explanation.
+   418→
+   419→---
+   420→
+   421→## 11. UI/UX DESIGN SYSTEM SPECIFICATIONS
+   422→
+   423→### 11.1 Color Palette & Theme Tokens
+   424→- **Background Main:** `#0F172A` (Slate 900)
+   425→- **Panel / Card Background:** `#1E293B` (Slate 800)
+   426→- **Card Border:** `#334155` (Slate 700)
+   427→- **Primary Accent:** `#6366F1` (Indigo 500)
+   428→- **Board Light Squares:** `#F0D9B5`
+   429→- **Board Dark Squares:** `#B58863`
+   430→- **Classification Colors:**
+   431→  - Brilliant: `#10B981` (Teal)
+   432→  - Great: `#3B82F6` (Blue)
+   433→  - Best: `#22C55E` (Green)
+   434→  - Inaccuracy: `#F59E0B` (Yellow)
+   435→  - Mistake: `#F97316` (Orange)
+   436→  - Blunder: `#EF4444` (Red)
+   437→
+   438→### 11.2 Audio Feedback Protocol
+   439→Web Audio API sound triggers MUST fire on:
+   440→- Move: `move.mp3`
+   441→- Capture: `capture.mp3`
+   442→- Check: `check.mp3`
+   443→- Castle: `castle.mp3`
+   444→- Game Over / Blunder: `alert.mp3`
+   445→
+   446→---
+   447→
+   448→## 12. COMPLETE WORKFLOW PIPELINE & SEQUENCING (FULL-STACK)
+   449→
+   450→```
+   451→[User Selects Game Mode]
+   452→        │
+   453→        ├──► MODE A: HUMAN VS AI
+   454→        │      ├── Player drags piece -> local optimistic board update
+   455→        │      ├── WS sends MAKE_MOVE -> Backend runs Layers 0,1,2,3,4,5
+   456→        │      ├── Server returns MOVE_ANALYZED -> UI updates EvalBar + Narrative
+   457→        │      ├── Backend triggers Stockfish AI move -> Server sends SIMULATION_STEP
+   458→        │      └── Board animates AI move -> Player turn resumed
+   459→        │
+   460→        ├──► MODE B: AI VS AI SIMULATION
+   461→        │      ├── User sets White Elo, Black Elo, Speed -> WS sends START_SIMULATION
+   462→        │      ├── Backend loop: Stockfish White -> Layers 0-5 -> WS stream -> Delay
+   463→        │      ├── Backend loop: Stockfish Black -> Layers 0-5 -> WS stream -> Delay
+   464→        │      └── UI updates Live Board + Scrolling Commentary Panel in real time
+   465→        │
+   466→        └──► MODE C: DEEP PGN IMPORT & REVIEW
+   467→               ├── User pastes PGN -> POST /api/v1/analyze/game
+   468→               ├── WS streams REVIEW_PROGRESS (0% -> 100%)
+   469→               ├── Server sends REVIEW_COMPLETE -> UI mounts Dashboard
+   470→               ├── Renders Eval Chart, Accuracy Cards, Move Badges
+   471→               └── User clicks chart point / move row -> Board jumps to exact Ply
+   472→```
+   473→
+   474→---
+   475→
+   476→## 13. ERROR HANDLING, EDGE CASES & RECOVERY (FRONTEND)
+   477→
+   478→1. **WebSocket Disconnection Mid-Game / Mid-Review:**
+   479→   * Automatically attempt reconnection (max 5 retries, 2s backoff).
+   480→   * Maintain current PGN and local move history in Zustand `localStorage` persistence wrapper.
+   481→2. **Illegal Drag-and-Drop Attempt:**
+   482→   * Snap piece immediately back to original square.
+   483→   * Play silent error tick. Do NOT issue backend API request.
+   484→3. **Pawn Promotion User Gesture:**
+   485→   * When pawn reaches 8th/1st rank, pause move execution and display an inline modal over the target square asking the user to choose: Queen, Rook, Bishop, or Knight.
+   486→   * Append promotion letter (`q`, `r`, `b`, `n`) to UCI string upon selection.
+   487→4. **Massive Game PGN Import (>150 Moves):**
+   488→   * Limit Stockfish batch depth to 14 if game length exceeds 100 moves to guarantee total review completion under 30 seconds.
+   489→
+   490→---
+   491→
+   492→## 14. TESTING STRATEGY & SUITE SPECIFICATION (FRONTEND & FULL-STACK)
+   493→
+   494→### 14.1 Unit Tests (Jest / React Testing Library)
+   495→1. `moveClassification.test.ts`: Verify win chance drops map to exact classification badges (`BRILLIANT`, `BLUNDER`, `INACCURACY`).
+   496→2. `chessHelpers.test.ts`: Validate FEN parsing, move flipping, and SAN conversion.
+   497→3. `EvalBar.test.tsx`: Ensure evaluation bar height and percentage render correctly for positive, negative, and mate scores.
+   498→
+   499→### 14.2 Integration & E2E Tests (Playwright)
+   500→1. `modeA_gameplay.spec.ts`: Simulate full 10-move game against Stockfish, verify move sound playback, board updates, and commentary panel streaming.
+   501→2. `modeC_import_review.spec.ts`: Upload sample PGN file, wait for batch analysis completion, verify Eval Chart rendering, click chart node, verify board jumps to target ply.
+   502→
+   503→---
+   504→
+   505→## 15. BUILD ORDER, DEPENDENCY GRAPH & IMPLEMENTATION PHASES (FULL-STACK)
+   506→
+   507→```
+   508→┌────────────────────────────────────────────────────────────────────────┐
+   509→│                   FULL-STACK IMPLEMENTATION SEQUENCING                 │
+   510→├────────────────────────────────────────────────────────────────────────┤
+   511→│ PHASE 1: UI DESIGN SYSTEM & CHESSBOARD BASE                            │
+   512→│ • Setup Next.js, Tailwind, TypeScript, Zustand, `react-chessboard`.    │
+   513→│ • Implement `ChessboardContainer.tsx`, `EvalBar.tsx`, Audio Service.    │
+   514→│ • Implement basic FEN/SAN rendering and move input handling.           │
+   515→├────────────────────────────────────────────────────────────────────────┤
+   516→│ PHASE 2: BACKEND WEBSOCKET & MODE A INTERACTIVE ENGINE                 │
+   517→│ • Implement WebSocket server in FastAPI (`api_server.py`).             │
+   518→│ • Wire Mode A: Human vs AI move loop with live analysis.               │
+   519→│ • Connect frontend `useGameStore` to WebSocket actions.                │
+   520→├────────────────────────────────────────────────────────────────────────┤
+   521→│ PHASE 3: MODE B SIMULATION & MODE C REVIEW DASHBOARD                   │
+   522→│ • Implement Mode B AI vs AI self-play streaming.                       │
+   523→│ • Implement Mode C PGN Import modal, progress bar, and review engine.  │
+   524→│ • Build `EvalChart.tsx` (Recharts) and Move Classification System.     │
+   525→├────────────────────────────────────────────────────────────────────────┤
+   526→│ PHASE 4: NARRATIVE PANELS, COACH CHAT & PGN EXPORT                      │
+   527→│ • Build `NarrativePanel.tsx`, `CoachChatDrawer.tsx` ("Ask Coach").     │
+   528→│ • Build Annotated PGN export generator with NAG symbols.               │
+   529→├────────────────────────────────────────────────────────────────────────┤
+   530→│ PHASE 5: FULL-STACK TESTING, POLISH & DEPLOYMENT                       │
+   531→│ • Execute Jest unit tests and Playwright E2E test suite.               │
+   532→│ • Perform mobile responsiveness tuning and Web Audio polish.           │
+   533→└────────────────────────────────────────────────────────────────────────┘
+   534→```
+   535→
+   536→---
+   537→
+   538→## 16. ACCEPTANCE CRITERIA & DEFINITION OF DONE
+   539→
+   540→1. **All 3 Modes Functional:** Mode A (Human vs AI), Mode B (AI vs AI), and Mode C (PGN Review) execute cleanly without exceptions.
+   541→2. **Move Classification Accuracy:** Move classifications match Stockfish win-chance drop metrics 100% deterministically.
+   542→3. **Board Interactivity:** Drag-and-drop piece movement, legal move highlighting, and arrow overlays function smoothly on both Desktop and Mobile viewports.
+   543→4. **WebSocket Reliability:** Reconnects automatically on network drop without losing active game state.
+   544→5. **Annotated PGN Export:** Exported PGN files open cleanly in ChessBase, Lichess, and Chess.com with embedded comments and NAG classification tags.
+   545→
+   546→**END OF MASTER ENGINEERING SPECIFICATION. IMPLEMENT SYSTEM EXACTLY AS SPECIFIED.**
+   547→
+   548→
+   549→
+   550→# CAISSAXAI-PROVIDERS: MULTI-LLM GATEWAY, PROVIDER SWITCHER UI, GOOGLE AI STUDIO / GROQ / OPENROUTER INTEGRATIONS & AUTOMATED DIAGNOSTIC SUITE
+   551→
+   552→## MASTER ENGINEERING SPECIFICATION & SYSTEM PROMPT FOR AUTONOMOUS AGENT
+   553→
+   554→**Document Version:** 1.0.0  
+   555→**Status:** Approved for Autonomous Agent Implementation  
+   556→**Target Extensions:** Backend Multi-LLM Gateway / Frontend Provider Vault UI / Live Integration Diagnostic Suite  
+   557→**Supported Providers:** Groq, OpenRouter, Google AI Studio (Gemini), OpenAI, Anthropic  
+   558→
+   559→---
+   560→
+   561→### SYSTEM OVERVIEW & CHARTER
+   562→
+   563→This specification extends the **CaissaXAI** platform with a unified, multi-provider LLM Gateway (`LLMProviderGateway`), a client-side Provider Settings UI with secure API key storage, on-the-fly provider switching during gameplay/review, and an **Automated Live Integration Diagnostic Suite** that tests every configured API key against real chess analysis payloads to verify latency, schema compliance, and anti-hallucination guardrails before activating the provider.
+   564→
+   565→```
+   566→┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+   567→│                                       MULTI-LLM GATEWAY & DIAGNOSTIC SYSTEM                                         │
+   568→│                                                                                                                      │
+   569→│  ┌─────────────────────────────────┐      ┌──────────────────────────────────┐      ┌─────────────────────────────┐  │
+   570→│  │     Frontend Settings UI        │      │      FastAPI Gateway Router      │      │    Live Health Tester       │  │
+   571→│  │ • API Key Vault (Encrypted)     │ ───► │  • Dynamic Provider Dispatcher   │ ───► │ • Dummy Chess Payload Test  │  │
+   572→│  │ • Active Provider Selector      │      │  • Unified Request Normalizer    │      │ • Schema Validation Check   │  │
+   573→│  │ • "Test All Providers" Button   │      │  • Auto-Fallback Execution       │      │ • Latency Benchmarking      │  │
+   574→│  └─────────────────────────────────┘      └────────────────┬─────────────────┘      └─────────────────────────────┘  │
+   575→│                                                            │                                                         │
+   576→│                                    ┌───────────────────────┴───────────────────────┐                                 │
+   577→│                                    │                                               │                                 │
+   578→│                                    ▼                                               ▼                                 │
+   579→│                    ┌───────────────────────────────┐               ┌───────────────────────────────┐                 │
+   580→│                    │    Groq API Adapter           │               │   OpenRouter API Adapter      │                 │
+   581→│                    │ (Llama 3.1 70B / Mixtral)     │               │ (Claude / DeepSeek / Llama)   │                 │
+   582→│                    └───────────────────────────────┘               └───────────────────────────────┘                 │
+   583→│                                    │                                               │                                 │
+   584→│                                    ▼                                               ▼                                 │
+   585→│                    ┌───────────────────────────────┐               ┌───────────────────────────────┐                 │
+   586→│                    │ Google AI Studio Adapter      │               │  OpenAI / Anthropic Adapters  │                 │
+   587→│                    │ (Gemini 1.5 Flash / Pro)      │               │ (GPT-4o / Claude 3.5 Sonnet)  │                 │
+   588→│                    └───────────────────────────────┘               └───────────────────────────────┘                 │
+   589→└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+   590→```
+   591→
+   592→---
+   593→
+   594→### 1. PROVIDER GATEWAY ARCHITECTURE & ADAPTER SPECIFICATIONS
+   595→
+   596→The backend must implement a unified adapter pattern (`LLMProviderGateway`) that normalizes request formatting, system prompt injection, and JSON response parsing across all providers.
+   597→
+   598→#### 1.1 Provider Specifications Table
+   599→
+   600→| Provider | Target Models | SDK / API Endpoint | Key Capabilities |
+   601→| :--- | :--- | :--- | :--- |
+   602→| **Groq** | `llama-3.1-70b-versatile`, `mixtral-8x7b-32768` | `groq` Python SDK / OpenAI-compatible REST | Ultra-fast inference ($\le 200\text{ms}$), JSON mode support |
+   603→| **OpenRouter** | `anthropic/claude-3.5-sonnet`, `deepseek/deepseek-r1`, `meta-llama/llama-3.1-70b-instruct` | `https://openrouter.ai/api/v1/chat/completions` | Universal model aggregation, fallback routing |
+   604→| **Google AI Studio** | `gemini-1.5-flash`, `gemini-1.5-pro` | `google-genai` Python SDK / REST `v1beta` | Large context window, structured JSON schema response |
+   605→| **OpenAI** | `gpt-4o`, `gpt-4o-mini` | `openai` Python SDK | Native Structured Outputs |
+   606→| **Anthropic** | `claude-3-5-sonnet-20241022` | `anthropic` Python SDK | High narrative fidelity |
+   607→
+   608→#### 1.2 Adapter Interface Design (Python Pseudocode)
+   609→
+   610→```python
+   611→# Interface for All Provider Adapters
+   612→
+   613→class BaseLLMAdapter(ABC):
+   614→    
+   615→    @abstractmethod
+   616→    async def generate_narrative(
+   617→        self, 
+   618→        payload: SynthesisPayloadModel, 
+   619→        system_prompt: str, 
+   620→        api_key: str, 
+   621→        model_name: str
+   622→    ) -> CommentaryOutputModel:
+   623→        """Executes API call, enforces JSON response schema, returns structured model."""
+   624→        pass
+   625→
+   626→    @abstractmethod
+   627→    async def test_connection(self, api_key: str, model_name: str) -> ProviderHealthResult:
+   628→        """Executes a live test call with a dummy payload and measures performance."""
+   629→        pass
+   630→```
+   631→
+   632→---
+   633→
+   634→### 2. DETAILED PROVIDER ADAPTER IMPLEMENTATIONS
+   635→
+   636→#### 2.1 Groq Adapter Implementation
+   637→- **SDK Usage:** `from groq import AsyncGroq`
+   638→- **Request Parameters:** `temperature=0.2`, `response_format={"type": "json_object"}`, `max_tokens=400`.
+   639→- **Special Handling:** Groq requires strict system prompt enforcement to output valid JSON.
+   640→
+   641→```python
+   642→# Groq Adapter Logic
+   643→CLASS GroqAdapter(BaseLLMAdapter):
+   644→    ASYNC FUNCTION generate_narrative(payload, system_prompt, api_key, model_name):
+   645→        client = AsyncGroq(api_key=api_key)
+   646→        
+   647→        response = AWAIT client.chat.completions.create(
+   648→            model=model_name,
+   649→            messages=[
+   650→                {"role": "system", "content": system_prompt + "\nOUTPUT MUST BE VALID JSON MATCHING SCHEMA."},
+   651→                {"role": "user", "content": payload.model_dump_json()}
+   652→            ],
+   653→            temperature=0.2,
+   654→            max_tokens=400,
+   655→            response_format={"type": "json_object"}
+   656→        )
+   657→        
+   658→        raw_json = response.choices[0].message.content
+   659→        RETURN PARSE_AND_VALIDATE_JSON(raw_json)
+   660→```
+   661→
+   662→#### 2.2 OpenRouter Adapter Implementation
+   663→- **HTTP Endpoint:** `POST https://openrouter.ai/api/v1/chat/completions`
+   664→- **Headers Required:**
+   665→  - `Authorization: Bearer <OPENROUTER_API_KEY>`
+   666→  - `HTTP-Referer: https://caissaxai.com` (App identification)
+   667→  - `X-Title: CaissaXAI Chess Engine`
+   668→
+   669→```python
+   670→# OpenRouter Adapter Logic
+   671→CLASS OpenRouterAdapter(BaseLLMAdapter):
+   672→    ASYNC FUNCTION generate_narrative(payload, system_prompt, api_key, model_name):
+   673→        headers = {
+   674→            "Authorization": f"Bearer {api_key}",
+   675→            "HTTP-Referer": "https://caissaxai.com",
+   676→            "X-Title": "CaissaXAI",
+   677→            "Content-Type": "application/json"
+   678→        }
+   679→        
+   680→        body = {
+   681→            "model": model_name, # e.g. "anthropic/claude-3.5-sonnet"
+   682→            "messages": [
+   683→                {"role": "system", "content": system_prompt},
+   684→                {"role": "user", "content": payload.model_dump_json()}
+   685→            ],
+   686→            "temperature": 0.2,
+   687→            "response_format": {"type": "json_object"}
+   688→        }
+   689→        
+   690→        response = AWAIT httpx_post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=body)
+   691→        raw_json = response.json()["choices"][0]["message"]["content"]
+   692→        RETURN PARSE_AND_VALIDATE_JSON(raw_json)
+   693→```
+   694→
+   695→#### 2.3 Google AI Studio (Gemini) Adapter Implementation
+   696→- **SDK Usage:** `google.genai` SDK or Direct REST API (`v1beta`)
+   697→- **Endpoint:** `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}`
+   698→- **Structured Output Config:** `response_mime_type="application/json"`
+   699→
+   700→```python
+   701→# Google AI Studio (Gemini) Adapter Logic
+   702→CLASS GoogleGeminiAdapter(BaseLLMAdapter):
+   703→    ASYNC FUNCTION generate_narrative(payload, system_prompt, api_key, model_name):
+   704→        # Configure Gemini Client
+   705→        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+   706→        
+   707→        body = {
+   708→            "contents": [{
+   709→                "parts": [
+   710→                    {"text": system_prompt + "\n\nJSON PAYLOAD:\n" + payload.model_dump_json()}
+   711→                ]
+   712→            }],
+   713→            "generationConfig": {
+   714→                "temperature": 0.2,
+   715→                "responseMimeType": "application/json"
+   716→            }
+   717→        }
+   718→        
+   719→        response = AWAIT httpx_post(url, json=body)
+   720→        raw_json = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+   721→        RETURN PARSE_AND_VALIDATE_JSON(raw_json)
+   722→```
+   723→
+   724→---
+   725→
+   726→### 3. LIVE INTEGRATION TEST HARNESS & HEALTH DIAGNOSTIC SUITE
+   727→
+   728→The system must feature an automated, end-to-end diagnostic runner that tests any provided API key against a benchmark chess position.
+   729→
+   730→#### 3.1 Diagnostic Test Protocol
+   731→When a user inputs an API key or clicks **"Test Integration"** in the UI:
+   732→1. System loads a static benchmark payload (`BENCHMARK_TEST_PAYLOAD`):
+   733→   - Position: Italian Game (`1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5`)
+   734→   - Move: `4... d5`
+   735→   - Deltas: `center_control_delta: +20`, `threats_cp: +50`
+   736→2. Measures API connection latency ($\text{ms}$).
+   737→3. Verifies HTTP status $200$.
+   738→4. Validates returned output against `CommentaryOutputModel` schema.
+   739→5. Runs **Anti-Hallucination Filter** on the returned commentary text to ensure moves cited exist in the legal move pool.
+   740→6. Returns a structured `ProviderHealthResult`.
+   741→
+   742→```python
+   743→# Diagnostic Suite Schema
+   744→class ProviderHealthResult(BaseModel):
+   745→    provider_id: Literal["groq", "openrouter", "google_gemini", "openai", "anthropic"]
+   746→    model_name: str
+   747→    status: Literal["SUCCESS", "INVALID_KEY", "RATE_LIMITED", "SCHEMA_ERROR", "HALLUCINATION_DETECTED", "TIMEOUT"]
+   748→    latency_ms: float
+   749→    error_message: Optional[str] = None
+   750→    sample_narrative: Optional[str] = None
+   751→    tested_at: str
+   752→```
+   753→
+   754→---
+   755→
+   756→### 4. DYNAMIC PROVIDER SETTINGS & SECURE KEY VAULT (UI & BACKEND)
+   757→
+   758→#### 4.1 Client-Side API Key Vault (UI State)
+   759→The UI MUST allow users to input keys for multiple providers and select the active provider dynamically during gameplay or review.
+   760→
+   761→```typescript
+   762→// Provider Configuration State Interface (Zustand)
+   763→
+   764→export type ProviderID = 'groq' | 'openrouter' | 'google_gemini' | 'openai' | 'anthropic';
+   765→
+   766→export interface ProviderConfig {
+   767→  apiKey: string;
+   768→  selectedModel: string;
+   769→  status: 'UNTESTED' | 'TESTING' | 'HEALTHY' | 'ERROR';
+   770→  latencyMs?: number;
+   771→  errorMessage?: string;
+   772→}
+   773→
+   774→export interface ProviderStoreState {
+   775→  activeProvider: ProviderID;
+   776→  providers: Record<ProviderID, ProviderConfig>;
+   777→
+   778→  // Actions
+   779→  setActiveProvider: (provider: ProviderID) => void;
+   780→  setProviderKey: (provider: ProviderID, key: string) => void;
+   781→  setProviderModel: (provider: ProviderID, model: string) => void;
+   782→  testProviderConnection: (provider: ProviderID) => Promise<boolean>;
+   783→  testAllProviders: () => Promise<void>;
+   784→}
+   785→```
+   786→
+   787→#### 4.2 Security & Key Storage Rules
+   788→1. **Client-Side Masked Persistence:** API keys stored in `localStorage` must be masked (`grk_••••••••1234`) when displayed in input fields.
+   789→2. **Encrypted Header Transmission:** When calling the backend API, the client passes the active provider ID and keys via custom HTTP Headers:
+   790→   - `X-Caissa-Provider: groq`
+   791→   - `X-Caissa-ApiKey-Groq: gsk_...`
+   792→   - `X-Caissa-ApiKey-Gemini: AIzaSy...`
+   793→   - `X-Caissa-ApiKey-OpenRouter: sk-or-...`
+   794→3. **Zero Backend Database Persistence:** API keys must NEVER be saved to the backend database. They exist strictly in the client's volatile state/local vault and are passed in headers per session request.
+   795→
+   796→---
+   797→
+   798→### 5. FRONTEND PROVIDER SWITCHER & DIAGNOSTIC UI COMPONENTS
+   799→
+   800→The agent must implement the following UI components in `src/components/settings/`:
+   801→
+   802→#### 5.1 `ProviderSettingsModal.tsx`
+   803→A sliding modal or settings tab featuring:
+   804→1. **Active Provider Dropdown:** Radio group / select switcher between Groq, OpenRouter, Google AI Studio, OpenAI, and Anthropic.
+   805→2. **Provider Key Vault Cards:** An expandable card for each provider containing:
+   806→   - API Key Input Field (Password type with toggleable eye icon).
+   807→   - Model Selector Dropdown.
+   808→   - Live Status Badge: `HEALTHY` (Green with latency ms), `ERROR` (Red), `UNTESTED` (Gray).
+   809→   - **"Test Connection"** button.
+   810→3. **Global "Test All Integrations" Button:** Iterates through all providers with entered keys and runs diagnostic tests in parallel.
+   811→
+   812→```
+   813→┌────────────────────────────────────────────────────────────────────────────────────────┐
+   814→│                                AI PROVIDER SETTINGS & VAULT                            │
+   815→├────────────────────────────────────────────────────────────────────────────────────────┤
+   816→│ Active Provider for Commentary: [ Groq (Llama 3.1 70B)                    ▼ ]          │
+   817→├────────────────────────────────────────────────────────────────────────────────────────┤
+   818→│                                                                                        │
+   819→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+   820→│ │  ⚡ GROQ API (Ultra-Fast Inference)                             [ HEALTHY (112ms) ] │ │
+   821→│ │  API Key: [ gsk_••••••••••••••••••••••••••••••••4f2a       👁 ]                    │ │
+   822→│ │  Model:   [ llama-3.1-70b-versatile                                             ▼ ] │ │
+   823→│ │  [ Test Connection ]                                                               │ │
+   824→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+   825→│                                                                                        │
+   826→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+   827→│ │  🌐 OPENROUTER (Multi-Model Hub)                                [ HEALTHY (340ms) ] │ │
+   828→│ │  API Key: [ sk-or-v1-••••••••••••••••••••••••••••••••9a1c  👁 ]                    │ │
+   829→│ │  Model:   [ anthropic/claude-3.5-sonnet                                         ▼ ] │ │
+   830→│ │  [ Test Connection ]                                                               │ │
+   831→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+   832→│                                                                                        │
+   833→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+   834→│ │  💎 GOOGLE AI STUDIO (Gemini)                                   [ HEALTHY (210ms) ] │ │
+   835→│ │  API Key: [ AIzaSy••••••••••••••••••••••••••••••••3k1a     👁 ]                    │ │
+   836→│ │  Model:   [ gemini-1.5-flash                                                    ▼ ] │ │
+   837→│ │  [ Test Connection ]                                                               │ │
+   838→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+   839→│                                                                                        │
+   840→│ [ TEST ALL INTEGRATIONS NOW ]                                    [ SAVE & CLOSE ]      │
+   841→└────────────────────────────────────────────────────────────────────────────────────────┘
+   842→```
+   843→
+   844→---
+   845→
+   846→### 6. WORKFLOW & SEQUENCING (KEY VERIFICATION TO NARRATION)
+   847→
+   848→The full sequence from UI key input to live commentary generation is shown below:
+   849→
+   850→```
+   851→[User Types API Key in Settings UI]
+   852→        │
+   853→        ▼
+   854→[User Clicks "Test Connection"]
+   855→        │
+   856→        ▼
+   857→[Frontend sends POST /api/v1/providers/test with Header: X-Caissa-ApiKey-Gemini]
+   858→        │
+   859→        ▼
+   860→[Backend Gateway receives test request]
+   861→  ├── Instantiates Target Adapter (e.g. GoogleGeminiAdapter)
+   862→  ├── Loads Benchmark Chess Payload (Italian Game 4...d5)
+   863→  ├── Starts Timer
+   864→  ├── Executes API Call -> Receives JSON
+   865→  ├── Measures Latency (ms)
+   866→  ├── Runs JSON Schema Validation
+   867→  └── Runs Anti-Hallucination Filter on output text
+   868→        │
+   869→        ├─── [FAIL] ──► Return ProviderHealthResult(status="ERROR", message="...")
+   870→        │                UI renders RED Badge ❌
+   871→        │
+   872→        └─── [PASS] ──► Return ProviderHealthResult(status="HEALTHY", latency_ms=210)
+   873→                         UI renders GREEN Badge ✅ (Shows 210ms)
+   874→        │
+   875→[User plays move on Chessboard]
+   876→        │
+   877→        ▼
+   878→[Frontend sends Move Request using ACTIVE Provider Selection & Headers]
+   879→        │
+   880→        ▼
+   881→[Backend routes to active provider adapter -> Returns live, verified commentary]
+   882→```
+   883→
+   884→---
+   885→
+   886→### 7. TESTING STRATEGY & COMPONENT SUITE
+   887→
+   888→The agent must build automated unit and integration tests for all provider adapters.
+   889→
+   890→#### 7.1 Integration Tests (`tests/integration/test_provider_adapters.py`)
+   891→1. `test_groq_adapter_live`: Executes live test call against Groq API if `GROQ_API_KEY` is present in env. Asserts response matches `CommentaryOutputModel` and latency $< 500\text{ms}$.
+   892→2. `test_openrouter_adapter_live`: Executes live test call against OpenRouter API. Asserts valid JSON response.
+   893→3. `test_google_gemini_adapter_live`: Executes live test call against Google AI Studio API (`gemini-1.5-flash`). Asserts response schema compliance.
+   894→4. `test_provider_fallback_chain`: Simulates a `429 Rate Limit` failure on primary provider (Groq) and verifies automatic fallback to secondary provider (Gemini).
+   895→
+   896→---
+   897→
+   898→### 8. ACCEPTANCE CRITERIA & DEFINITION OF DONE
+   899→
+   900→The agent must verify all checklist items before considering this module complete:
+   901→
+   902→- [ ] **All 5 Provider Adapters Implemented:** Groq, OpenRouter, Google AI Studio (Gemini), OpenAI, and Anthropic adapters fully operational in `LLMProviderGateway`.
+   903→- [ ] **Google AI Studio Integration Fully Functional:** Gemini 1.5 Flash and Pro models generate valid structured JSON commentary using the `v1beta` API key.
+   904→- [ ] **OpenRouter Integration Fully Functional:** OpenRouter router correctly passes headers and dispatches to models like `anthropic/claude-3.5-sonnet` and `deepseek/deepseek-r1`.
+   905→- [ ] **Groq Integration Fully Functional:** Groq ultra-fast adapter operates with $\le 250\text{ms}$ latency.
+   906→- [ ] **UI Settings Panel Complete:** UI modal allows typing/masking keys, selecting models, switching active provider on the fly, and viewing health status badges.
+   907→- [ ] **Live Diagnostic Test Harness Working:** "Test Connection" button executes an end-to-end benchmark analysis call and reports real-time latency and status in the UI.
+   908→- [ ] **Anti-Hallucination Filter Enforced Across All Adapters:** Output text from every provider is verified against legal moves before being returned to the UI.
+   909→- [ ] **Zero Hardcoded Keys:** All keys are passed dynamically from client headers or env files.
+   910→
+   911→**END OF MULTI-PROVIDER & DIAGNOSTIC SYSTEM SPECIFICATION. IMPLEMENT EXACTLY AS SPECIFIED.**
