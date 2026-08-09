@@ -385,7 +385,7 @@ export function see(fen: string, moveUci: string): number {
     return 0;
   }
   // Captured piece value
-  let gain = PIECE_VALUES[move.captured];
+  const gain = PIECE_VALUES[move.captured];
   // Find smallest recapturer
   const toSquare = move.to;
   const recapturerSquares = chess.attackers(toSquare).filter(sq => {
@@ -394,7 +394,7 @@ export function see(fen: string, moveUci: string): number {
   });
   if (recapturerSquares.length === 0) {
     chess.undo();
-    return gain;
+    return gain;  // Free capture — no recapture possible
   }
   // Pick smallest value recapturer
   let smallestRecapturer: { sq: Square; piece: PieceSymbol; val: number } | null = null;
@@ -410,26 +410,50 @@ export function see(fen: string, moveUci: string): number {
     chess.undo();
     return gain;
   }
-  // Recursive SEE
-  // For simplicity, just one level: gain - opponent's recapture value
-  // (full recursive SEE is in the Python Layer-2 module).
-  chess.undo();
-  // If the recapturer is the king and the destination is defended, the king
-  // cannot recapture.  Approximate: if recapturer is king AND the mover's
-  // side still has an attacker on `to`, then no recapture.
-  const chess2 = new Chess(fen);
-  chess2.move(move);
+
+  // ─── King-as-recapturer special case ──────────────────────────────────
+  // If the smallest recapturer is the king, we must verify the king can
+  // LEGALLY move to `toSquare` — i.e., `toSquare` is NOT attacked by the
+  // mover's side after the king is hypothetically placed there.  If it IS
+  // attacked, the king cannot recapture (it would be moving into check),
+  // so this square is effectively undefended → SEE = gain (free capture).
+  //
+  // This is the bug from the spec screenshot: Nxf7 in the Italian Gambit
+  // has the black king on e8 as the only recapturer, but Bc4 attacks f7,
+  // so Kxf7 is illegal.  SEE must return +100, not 0.
   if (smallestRecapturer.piece === 'k') {
-    // Check if `toSquare` is attacked by the mover's side after the king is removed.
-    const tempBoard = new Chess(chess2.fen());
-    tempBoard.remove(toSquare);  // remove the king hypothetically
-    // Actually we removed the wrong piece — the king is on `smallestRecapturer.sq`, not `toSquare`.
-    // Simplification: just allow the king recapture; the recursion handles the rest.
-    gain -= smallestRecapturer.val;
-  } else {
-    gain -= smallestRecapturer.val;
+    // Hypothetically remove the king from its source square, then check
+    // whether `toSquare` is attacked by the mover's color.
+    const moverColor = move.color;  // 'w' or 'b'
+    const tempBoard = new Chess(chess.fen());
+    tempBoard.remove(smallestRecapturer.sq);
+    const destAttackedByMover = tempBoard.isAttacked(toSquare, moverColor);
+    chess.undo();
+    if (destAttackedByMover) {
+      // King cannot recapture — the mover's piece is defended.
+      // Treat as a free capture.
+      return gain;
+    }
+    // King can legally recapture — net is gain - king_value, but since the
+    // king can't actually be captured (game would end), we treat the
+    // exchange as: mover loses their piece for free.
+    // Standard SEE convention: if the king recaptures and is not itself
+    // recapturable, the exchange nets to (gain - mover_piece_value) clamped
+    // to >= 0.  But since the king is invaluable, the mover's piece is just
+    // lost.  Simplification: return max(gain - moverPieceVal, 0).
+    const moverPiece = chess.get(move.from as Square) || { type: 'p' as PieceSymbol };
+    // Actually we already did chess.undo() above; re-fetch from the original fen.
+    const origBoard = new Chess(fen);
+    const origMover = origBoard.get(move.from as Square);
+    const moverVal = origMover ? PIECE_VALUES[origMover.type] : 100;
+    return Math.max(gain - moverVal, 0);
   }
-  return Math.max(gain, 0);
+
+  // Non-king recapturer: standard one-level SEE.
+  // Full recursive SEE is in the Python Layer-2 module; for the browser we
+  // approximate with one level of recapture.
+  chess.undo();
+  return Math.max(gain - smallestRecapturer.val, 0);
 }
 
 // ---------------------------------------------------------------------------

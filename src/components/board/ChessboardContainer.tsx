@@ -40,6 +40,9 @@ export function ChessboardContainer({ size = 480 }: { size?: number }) {
   const legalMoves = useGameStore((s) => s.legalMovesFromSelected);
   const lastMove = useGameStore((s) => s.lastMove);
   const activeArrows = useGameStore((s) => s.activeArrows);
+  const temporaryArrows = useGameStore((s) => s.temporaryArrows);
+  const temporaryHighlights = useGameStore((s) => s.temporaryHighlights);
+  const hoveredTileId = useGameStore((s) => s.hoveredTileId);
   const selectSquare = useGameStore((s) => s.selectSquare);
   const makeMove = useGameStore((s) => s.makeMove);
   const orientation = useSettingsStore((s) => s.boardOrientation);
@@ -189,6 +192,7 @@ export function ChessboardContainer({ size = 480 }: { size?: number }) {
             const isLegal = legalMoves.includes(sq);
             const isLastMove = lastMove && (lastMove.from === sq || lastMove.to === sq);
             const isCheck = checkSquare === sq;
+            const isTempHighlight = temporaryHighlights.includes(sq);
             const pieceKey = piece ? `${piece.color}${piece.type}` : null;
 
             return (
@@ -231,6 +235,17 @@ export function ChessboardContainer({ size = 480 }: { size?: number }) {
                 )}
                 {isCheck && (
                   <div className="absolute inset-0 pointer-events-none animate-pulse" style={{ background: CHECK_TINT }} />
+                )}
+                {/* ─── Dual-View: temporary tile-hover highlight (spec §4) ──── */}
+                {isTempHighlight && (
+                  <div
+                    className="absolute inset-0 pointer-events-none transition-opacity"
+                    style={{
+                      background: 'radial-gradient(circle, rgba(251, 191, 36, 0.55) 0%, rgba(251, 191, 36, 0.25) 70%, transparent 100%)',
+                      border: '2px solid rgba(251, 191, 36, 0.85)',
+                      boxShadow: 'inset 0 0 12px rgba(251, 191, 36, 0.5)',
+                    }}
+                  />
                 )}
 
                 {/* Piece */}
@@ -307,7 +322,7 @@ export function ChessboardContainer({ size = 480 }: { size?: number }) {
           const y2 = toCoords.y - uy * endPad;
           return (
             <line
-              key={i}
+              key={`perm-${i}`}
               x1={x1} y1={y1} x2={x2} y2={y2}
               stroke={color}
               strokeWidth={squareSize * 0.10}
@@ -315,6 +330,36 @@ export function ChessboardContainer({ size = 480 }: { size?: number }) {
               markerEnd="url(#arrowhead)"
               opacity={0.85}
               style={{ color }}
+            />
+          );
+        })}
+        {/* ─── Dual-View: temporary tile-hover arrows (spec §4) ──────────── */}
+        {/* Rendered with higher opacity + thicker stroke so they pop above
+            the permanent arrows while the user is hovering a rule tile. */}
+        {temporaryArrows.map(([from, to, color], i) => {
+          const fromCoords = squareToCoords(from, orientation, squareSize);
+          const toCoords = squareToCoords(to, orientation, squareSize);
+          if (!fromCoords || !toCoords) return null;
+          const dx = toCoords.x - fromCoords.x;
+          const dy = toCoords.y - fromCoords.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const ux = dx / len, uy = dy / len;
+          const startPad = squareSize * 0.30;
+          const endPad = squareSize * 0.35;
+          const x1 = fromCoords.x + ux * startPad;
+          const y1 = fromCoords.y + uy * startPad;
+          const x2 = toCoords.x - ux * endPad;
+          const y2 = toCoords.y - uy * endPad;
+          return (
+            <line
+              key={`temp-${i}`}
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={color}
+              strokeWidth={squareSize * 0.14}
+              strokeLinecap="round"
+              markerEnd="url(#arrowhead)"
+              opacity={0.95}
+              style={{ color, filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.4))' }}
             />
           );
         })}

@@ -40,6 +40,51 @@ export interface ChessMove {
   isCheck?: boolean;
   isCheckmate?: boolean;
   concreteThreats?: Array<{ san: string; gainCp: number; target: string; piece: string }>;
+  // ─── Dual-View payload (spec §1) ──────────────────────────────────────────
+  atomicRuleTiles?: AtomicRuleTile[];
+  calculationBreakdown?: CalculationBreakdown;
+}
+
+// ─── Dual-View types (spec §1.1, §1.2) ────────────────────────────────────────
+
+export type RuleCategory =
+  | 'material'
+  | 'tactics'
+  | 'piece_activity'
+  | 'pawn_structure'
+  | 'king_safety'
+  | 'space_center'
+  | 'prophylaxis';
+
+export type ImportanceTier = 'PRIMARY' | 'SECONDARY' | 'MINOR';
+
+export interface AtomicRuleTile {
+  ruleId: string;                       // e.g. "KNIGHT_OUTPOST"
+  ruleName: string;                     // e.g. "Knight Outpost"
+  category: RuleCategory;
+  rawDeltaCp: number;                   // pre-phase-weight centipawns
+  weightedPointsCp: number;             // final points added to eval
+  principleSummary: string;             // one-sentence chess principle
+  highlightSquares: string[];           // e.g. ["e5", "d4"]
+  arrowVectors: Array<[string, string, string]>; // [from, to, color]
+  importanceTier: ImportanceTier;
+}
+
+export interface RulePointCalculationItem {
+  ruleName: string;
+  baseScoreCp: number;
+  phaseWeightMultiplier: number;        // e.g. 0.85 for late-middlegame
+  finalPointsCp: number;
+}
+
+export interface CalculationBreakdown {
+  startEvalCp: number;
+  endEvalCp: number;
+  netChangeCp: number;
+  gamePhaseFactor: number;              // 1.0 = pure MG, 0.0 = pure EG
+  whitePositivePoints: number;          // sum of positive rule points
+  blackPositivePoints: number;          // sum of negative rule points
+  ruleCalculations: RulePointCalculationItem[];
 }
 
 export interface GameReviewSummary {
@@ -120,4 +165,21 @@ export const CLASSIFICATION_META: Record<MoveClassification, { label: string; co
   MISTAKE:      { label: 'Mistake',      color: '#F97316', bg: 'rgba(249,115,22,0.15)', symbol: '?'  },
   BLUNDER:      { label: 'Blunder',      color: '#EF4444', bg: 'rgba(239,68,68,0.15)',  symbol: '??' },
   MISS:         { label: 'Miss',         color: '#EF4444', bg: 'rgba(239,68,68,0.10)',  symbol: '×'  },
+};
+
+// ─── Rule tile metadata (spec §3.1 RULE_METADATA) ────────────────────────────
+export const RULE_CATEGORY_META: Record<RuleCategory, { label: string; icon: string; color: string; bg: string }> = {
+  material:       { label: 'Material',       icon: '⚖',  color: '#A78BFA', bg: 'rgba(167,139,250,0.15)' },
+  tactics:        { label: 'Tactics',        icon: '🎯', color: '#F87171', bg: 'rgba(248,113,113,0.15)' },
+  piece_activity: { label: 'Piece Activity', icon: '♞',  color: '#60A5FA', bg: 'rgba(96,165,250,0.15)' },
+  pawn_structure: { label: 'Pawn Structure', icon: '♟',  color: '#FBBF24', bg: 'rgba(251,191,36,0.15)' },
+  king_safety:    { label: 'King Safety',    icon: '🛡',  color: '#FB7185', bg: 'rgba(251,113,133,0.15)' },
+  space_center:   { label: 'Space / Center', icon: '🌐', color: '#34D399', bg: 'rgba(52,211,153,0.15)' },
+  prophylaxis:    { label: 'Prophylaxis',    icon: '🔮', color: '#C084FC', bg: 'rgba(192,132,252,0.15)' },
+};
+
+export const TIER_META: Record<ImportanceTier, { label: string; glow: string; weight: string }> = {
+  PRIMARY:   { label: 'Primary',   glow: 'rgba(251, 191, 36, 0.55)', weight: 'bold' },
+  SECONDARY: { label: 'Secondary', glow: 'rgba(148, 163, 184, 0.30)', weight: 'normal' },
+  MINOR:     { label: 'Minor',     glow: 'rgba(100, 116, 139, 0.15)', weight: 'normal' },
 };

@@ -9,6 +9,7 @@ import { Chess } from 'chess.js';
 import type { ChessMove, GameMode, PlayerColor } from '@/types/chess';
 import { evaluate, winChance, searchBestMove, see, pickMoveAtElo, classifyMove } from '@/lib/chess/engine';
 import { buildPayload, generateNarrative } from '@/lib/chess/narrator';
+import { generateTilesAndCalc, checkNarrativeAgainstTiles } from '@/lib/chess/ruleTiles';
 import { useProviderStore } from './useProviderStore';
 
 interface GameState {
@@ -37,6 +38,13 @@ interface GameState {
   activeHighlights: Array<[string, string]>;
   lastMove: { from: string; to: string } | null;
 
+  // ─── Dual-View: temporary (tile-hover) board overlays (spec §4) ──────────
+  // When the user hovers a rule tile, we paint these on the board for
+  // as long as the hover lasts.  They take precedence over `activeArrows`.
+  temporaryArrows: Array<[string, string, string]>;
+  temporaryHighlights: string[];
+  hoveredTileId: string | null;
+
   // Narrative
   currentCommentary: string | null;
   isGeneratingNarrative: boolean;
@@ -58,6 +66,9 @@ interface GameState {
   askCoach: (question: string) => Promise<string>;
   setArrows: (arrows: Array<[string, string, string]>) => void;
   clearArrows: () => void;
+  // ─── Dual-View tile-hover actions (spec §4) ──────────────────────────────
+  setTileHover: (tileId: string | null, arrows: Array<[string, string, string]>, highlights: string[]) => void;
+  clearTileHover: () => void;
 }
 
 const INITIAL_FEN = new Chess().fen();
@@ -89,6 +100,11 @@ export const useGameStore = create<GameState>()(
       activeArrows: [],
       activeHighlights: [],
       lastMove: null,
+
+      // Dual-View tile-hover defaults
+      temporaryArrows: [],
+      temporaryHighlights: [],
+      hoveredTileId: null,
 
       // Narrative
       currentCommentary: null,
@@ -150,6 +166,52 @@ export const useGameStore = create<GameState>()(
           isOnlyViable: false,
         });
 
+        // ─── Dual-View: compute concrete threats + atomic rule tiles ────────
+        // (spec §3.1 — RuleTileSynthesizer port)
+        const concreteThreats: Array<{ san: string; gainCp: number; target: string; piece: string }> = [];
+        if (!chess.isCheckmate() && !chess.isStalemate()) {
+          try {
+            // Null-move proxy: toggle side via FEN to find what captures the
+            // mover would have if the opponent passed.
+            const fenParts = fenAfter.split(' ');
+            fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+            fenParts[3] = '-';
+            const tmpBoard = new Chess();
+            tmpBoard.load(fenParts.join(' '));
+            const captureMoves = tmpBoard.moves({ verbose: true }) as any[];
+            for (const m of captureMoves.slice(0, 12)) {
+              if (!m.captured) continue;
+              const gain = see(tmpBoard.fen(), m.lan);
+              if (gain >= 0) {
+                concreteThreats.push({
+                  san: m.san,
+                  gainCp: gain,
+                  target: m.to,
+                  piece: m.captured,
+                });
+              }
+            }
+          } catch { /* skip */ }
+        }
+
+        // Generate atomic rule tiles + calculation breakdown.
+        const { tiles, breakdown } = generateTilesAndCalc({
+          fenBefore,
+          fenAfter,
+          moveUci: move.lan,
+          moveSan: move.san,
+          playerColor,
+          seeScore,
+          isCapture: !!move.captured,
+          isCheck: chess.inCheck(),
+          isCheckmate: chess.isCheckmate(),
+          capturedPiece: move.captured,
+          concreteThreats,
+          evalBeforeCp: eBefore.cp,
+          evalAfterCp: eAfter.cp,
+          bestMoveSan: best.bestMoveSan,
+        });
+
         const moveRecord: ChessMove = {
           ply: state.moveHistory.length,
           moveNumber: Math.floor(state.moveHistory.length / 2) + 1,
@@ -167,7 +229,10 @@ export const useGameStore = create<GameState>()(
           isCapture: !!move.captured,
           isCheck: chess.inCheck(),
           isCheckmate: chess.isCheckmate(),
+          concreteThreats,
           arrows: [[move.from, move.to, 'rgba(34, 197, 94, 0.85)']],
+          atomicRuleTiles: tiles,
+          calculationBreakdown: breakdown,
         };
 
         set({
@@ -182,10 +247,34 @@ export const useGameStore = create<GameState>()(
                       chess.isDraw() ? '1/2-1/2' : null,
         });
 
-        // Generate narrative (async)
+        // Generate narrative (async) — passes tiles + breakdown so the LLM
+        // can ground its prose in the verified symbolic facts.
         const providerState = useProviderStore.getState();
         const activeProvider = providerState.activeProvider;
         const providerConfig = providerState.providers[activeProvider];
+
+        const finalizeNarrative = (rawCommentary: string): string => {
+          // ─── Anti-hallucination filter (spec §5) ────────────────────────
+          // Verify the LLM's text doesn't contradict the symbolic engine.
+          const synthInput = {
+            fenBefore, fenAfter, moveUci: move.lan, moveSan: move.san,
+            playerColor, seeScore,
+            isCapture: !!move.captured, isCheck: chess.inCheck(),
+            isCheckmate: chess.isCheckmate(),
+            capturedPiece: move.captured,
+            concreteThreats,
+            evalBeforeCp: eBefore.cp, evalAfterCp: eAfter.cp,
+          };
+          const check = checkNarrativeAgainstTiles(rawCommentary, tiles, synthInput);
+          if (check.passed) {
+            return rawCommentary;
+          }
+          // If the LLM hallucinated, append a system-generated correction
+          // notice so the user sees BOTH the LLM claim and the truth.
+          const correction = `\n\n⚠️ Verification notice: ${check.violations.join(' ')}`;
+          return rawCommentary + correction;
+        };
+
         if (providerConfig?.apiKey) {
           set({ isGeneratingNarrative: true });
           try {
@@ -194,14 +283,27 @@ export const useGameStore = create<GameState>()(
               playerColor, targetElo: state.coachElo,
               pvContinuation: best.pv,
             });
+            // Inject the tiles into the payload so the LLM sees them.
+            (payload as any).atomic_rule_tiles = tiles;
+            (payload as any).calculation_breakdown = breakdown;
             const result = await generateNarrative(payload, {
               provider: activeProvider,
               apiKey: providerConfig.apiKey,
               model: providerConfig.selectedModel,
             });
+            const finalized = finalizeNarrative(result.commentary);
+            // Patch the move record with the finalized commentary.
+            const updatedHistory = [...get().moveHistory];
+            if (updatedHistory[moveRecord.ply]) {
+              updatedHistory[moveRecord.ply] = {
+                ...updatedHistory[moveRecord.ply],
+                commentary: finalized,
+              };
+            }
             set({
-              currentCommentary: result.commentary,
+              currentCommentary: finalized,
               isGeneratingNarrative: false,
+              moveHistory: updatedHistory,
             });
           } catch {
             set({ isGeneratingNarrative: false });
@@ -215,10 +317,21 @@ export const useGameStore = create<GameState>()(
               playerColor, targetElo: state.coachElo,
               pvContinuation: best.pv,
             });
+            (payload as any).atomic_rule_tiles = tiles;
+            (payload as any).calculation_breakdown = breakdown;
             const result = await generateNarrative(payload);
+            const finalized = finalizeNarrative(result.commentary);
+            const updatedHistory = [...get().moveHistory];
+            if (updatedHistory[moveRecord.ply]) {
+              updatedHistory[moveRecord.ply] = {
+                ...updatedHistory[moveRecord.ply],
+                commentary: finalized,
+              };
+            }
             set({
-              currentCommentary: result.commentary,
+              currentCommentary: finalized,
               isGeneratingNarrative: false,
+              moveHistory: updatedHistory,
             });
           } catch {
             set({ isGeneratingNarrative: false });
@@ -270,6 +383,9 @@ export const useGameStore = create<GameState>()(
           activeArrows: [],
           activeHighlights: [],
           lastMove: null,
+          temporaryArrows: [],
+          temporaryHighlights: [],
+          hoveredTileId: null,
           currentCommentary: null,
           isGeneratingNarrative: false,
         });
@@ -338,6 +454,39 @@ export const useGameStore = create<GameState>()(
             wAfter:  playerColor === 'white' ? wcAfter  : 1 - wcAfter,
             isOnlyViable: false,
           });
+
+          // ─── Dual-View: generate atomic rule tiles + breakdown ──────────
+          const threats: Array<{ san: string; gainCp: number; target: string; piece: string }> = [];
+          if (!chess.isCheckmate() && !chess.isStalemate()) {
+            try {
+              const fenParts = fenAfter.split(' ');
+              fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+              fenParts[3] = '-';
+              const tmpBoard = new Chess();
+              tmpBoard.load(fenParts.join(' '));
+              const captureMoves = tmpBoard.moves({ verbose: true }) as any[];
+              for (const m of captureMoves.slice(0, 12)) {
+                if (!m.captured) continue;
+                const gain = see(tmpBoard.fen(), m.lan);
+                if (gain >= 0) {
+                  threats.push({ san: m.san, gainCp: gain, target: m.to, piece: m.captured });
+                }
+              }
+            } catch { /* skip */ }
+          }
+
+          const { tiles, breakdown } = generateTilesAndCalc({
+            fenBefore, fenAfter,
+            moveUci: mv.lan, moveSan: mv.san,
+            playerColor, seeScore,
+            isCapture: !!mv.captured, isCheck: chess.inCheck(),
+            isCheckmate: chess.isCheckmate(),
+            capturedPiece: mv.captured,
+            concreteThreats: threats,
+            evalBeforeCp: eBefore.cp, evalAfterCp: eAfter.cp,
+            bestMoveSan: best.bestMoveSan,
+          });
+
           records.push({
             ply: records.length,
             moveNumber: Math.floor(records.length / 2) + 1,
@@ -354,6 +503,9 @@ export const useGameStore = create<GameState>()(
             isCapture: !!mv.captured,
             isCheck: chess.inCheck(),
             isCheckmate: chess.isCheckmate(),
+            concreteThreats: threats,
+            atomicRuleTiles: tiles,
+            calculationBreakdown: breakdown,
           });
         }
         set({
@@ -408,6 +560,20 @@ export const useGameStore = create<GameState>()(
 
       setArrows: (arrows) => set({ activeArrows: arrows }),
       clearArrows: () => set({ activeArrows: [] }),
+
+      // ─── Dual-View tile-hover actions (spec §4) ─────────────────────────
+      // When the user hovers a rule tile, set temporary board overlays that
+      // take precedence over `activeArrows`.  Cleared on mouse-leave.
+      setTileHover: (tileId, arrows, highlights) => set({
+        hoveredTileId: tileId,
+        temporaryArrows: arrows,
+        temporaryHighlights: highlights,
+      }),
+      clearTileHover: () => set({
+        hoveredTileId: null,
+        temporaryArrows: [],
+        temporaryHighlights: [],
+      }),
     }),
     {
       name: 'caissaxai-game',
