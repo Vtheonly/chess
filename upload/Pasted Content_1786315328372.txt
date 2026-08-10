@@ -817,22 +817,22 @@ A sliding modal or settings tab featuring:
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                        │
 │ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-│ │  ⚡ GROQ API (Ultra-Fast Inference)                             [ HEALTHY (112ms) ] │ │
-│ │  API Key: [ gsk_••••••••••••••••••••••••••••••••4f2a       👁 ]                    │ │
+│ │   GROQ API (Ultra-Fast Inference)                             [ HEALTHY (112ms) ] │ │
+│ │  API Key: [ gsk_••••••••••••••••••••••••••••••••4f2a        ]                    │ │
 │ │  Model:   [ llama-3.1-70b-versatile                                             ▼ ] │ │
 │ │  [ Test Connection ]                                                               │ │
 │ └────────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                        │
 │ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-│ │  🌐 OPENROUTER (Multi-Model Hub)                                [ HEALTHY (340ms) ] │ │
-│ │  API Key: [ sk-or-v1-••••••••••••••••••••••••••••••••9a1c  👁 ]                    │ │
+│ │   OPENROUTER (Multi-Model Hub)                                [ HEALTHY (340ms) ] │ │
+│ │  API Key: [ sk-or-v1-••••••••••••••••••••••••••••••••9a1c   ]                    │ │
 │ │  Model:   [ anthropic/claude-3.5-sonnet                                         ▼ ] │ │
 │ │  [ Test Connection ]                                                               │ │
 │ └────────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                        │
 │ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-│ │  💎 GOOGLE AI STUDIO (Gemini)                                   [ HEALTHY (210ms) ] │ │
-│ │  API Key: [ AIzaSy••••••••••••••••••••••••••••••••3k1a     👁 ]                    │ │
+│ │   GOOGLE AI STUDIO (Gemini)                                   [ HEALTHY (210ms) ] │ │
+│ │  API Key: [ AIzaSy••••••••••••••••••••••••••••••••3k1a      ]                    │ │
 │ │  Model:   [ gemini-1.5-flash                                                    ▼ ] │ │
 │ │  [ Test Connection ]                                                               │ │
 │ └────────────────────────────────────────────────────────────────────────────────────┘ │
@@ -867,10 +867,10 @@ The full sequence from UI key input to live commentary generation is shown below
   └── Runs Anti-Hallucination Filter on output text
         │
         ├─── [FAIL] ──► Return ProviderHealthResult(status="ERROR", message="...")
-        │                UI renders RED Badge ❌
+        │                UI renders RED Badge 
         │
         └─── [PASS] ──► Return ProviderHealthResult(status="HEALTHY", latency_ms=210)
-                         UI renders GREEN Badge ✅ (Shows 210ms)
+                         UI renders GREEN Badge  (Shows 210ms)
         │
 [User plays move on Chessboard]
         │

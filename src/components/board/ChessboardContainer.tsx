@@ -21,7 +21,7 @@ const CHECK_TINT = 'rgba(239, 68, 68, 0.55)';
 const LEGAL_DOT = 'rgba(34, 197, 94, 0.55)';
 const LEGAL_CAPTURE_RING = 'rgba(239, 68, 68, 0.65)';
 
-// Unicode chess pieces (no external SVG required)
+// Unicode chess pieces
 const PIECE_UNICODE: Record<string, string> = {
   wp: '♙', wn: '♘', wb: '♗', wr: '♖', wq: '♕', wk: '♔',
   bp: '♟', bn: '♞', bb: '♝', br: '♜', bq: '♛', bk: '♚',

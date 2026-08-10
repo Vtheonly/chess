@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
-import { evaluate, see } from '/home/z/my-project/src/lib/chess/engine.ts';
-import { generateTilesAndCalc, checkNarrativeAgainstTiles } from '/home/z/my-project/src/lib/chess/ruleTiles.ts';
+import { evaluate, see } from '../src/lib/chess/engine';
+import { generateTilesAndCalc, checkNarrativeAgainstTiles } from '../src/lib/chess/ruleTiles';
 
 interface TestCase {
   name: string;
@@ -176,20 +176,20 @@ for (const tc of cases) {
 
   let testPassed = true;
   if (result.passed !== tc.expectPassed) {
-    console.log(`  ❌ FAIL: expected passed=${tc.expectPassed}, got ${result.passed}`);
+    console.log(`   FAIL: expected passed=${tc.expectPassed}, got ${result.passed}`);
     testPassed = false;
   }
   if (tc.expectViolationContains) {
     for (const substr of tc.expectViolationContains) {
       const found = result.violations.some(v => v.toLowerCase().includes(substr.toLowerCase()));
       if (!found) {
-        console.log(`  ❌ FAIL: expected a violation containing "${substr}", none found`);
+        console.log(`   FAIL: expected a violation containing "${substr}", none found`);
         testPassed = false;
       }
     }
   }
   if (testPassed) {
-    console.log(`  ✅ PASS`);
+    console.log(`   PASS`);
     passCount++;
   } else {
     failCount++;

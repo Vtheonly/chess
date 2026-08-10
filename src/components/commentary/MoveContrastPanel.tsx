@@ -27,7 +27,7 @@ export function MoveContrastPanel({ contrast }: Props) {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
-            <span className="text-lg">⚖️</span>
+            <span className="text-lg"></span>
             Comparative Analysis
           </span>
           <span className={`text-xs px-2.5 py-1 rounded-full font-mono font-bold border ${badgeClass}`}>

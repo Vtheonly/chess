@@ -1,0 +1,2 @@
+[console_scripts]
+caissaxai-l2-demo = caissaxai.layer2_symbolic.demo:main

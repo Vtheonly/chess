@@ -29,6 +29,7 @@ interface GameState {
 
   // Game status
   isEngineThinking: boolean;
+  isMakingMove: boolean;
   isGameActive: boolean;
   isPaused: boolean;
   gameResult: string | null;
@@ -66,12 +67,13 @@ interface GameState {
   askCoach: (question: string) => Promise<string>;
   setArrows: (arrows: Array<[string, string, string]>) => void;
   clearArrows: () => void;
+  generateCommentaryForPly: (ply: number) => Promise<void>;
   // ─── Dual-View tile-hover actions (spec §4) ──────────────────────────────
   setTileHover: (tileId: string | null, arrows: Array<[string, string, string]>, highlights: string[]) => void;
   clearTileHover: () => void;
 }
 
-const INITIAL_FEN = new Chess().fen();
+const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 export const useGameStore = create<GameState>()(
   persist(
@@ -92,6 +94,7 @@ export const useGameStore = create<GameState>()(
 
       // Status defaults
       isEngineThinking: false,
+      isMakingMove: false,
       isGameActive: false,
       isPaused: false,
       gameResult: null,
@@ -135,10 +138,14 @@ export const useGameStore = create<GameState>()(
 
       makeMove: async (uci) => {
         const state = get();
+        // Concurrency guard: prevent overlapping moves from corrupting state
+        if (state.isMakingMove) return false;
+        set({ isMakingMove: true });
+
         const chess = new Chess(state.fen);
         let move;
-        try { move = chess.move(uci); } catch { return false; }
-        if (!move) return false;
+        try { move = chess.move(uci); } catch { set({ isMakingMove: false }); return false; }
+        if (!move) { set({ isMakingMove: false }); return false; }
 
         const fenBefore = state.fen;
         const fenAfter = chess.fen();
@@ -234,84 +241,53 @@ export const useGameStore = create<GameState>()(
           arrows: [[move.from, move.to, 'rgba(34, 197, 94, 0.85)']],
           atomicRuleTiles: tiles,
           calculationBreakdown: breakdown,
+          commentary: undefined,
+          isGeneratingCommentary: true,
         };
+
+        const newHistory = [...state.moveHistory, moveRecord];
+        const newPly = newHistory.length - 1;
 
         set({
           fen: fenAfter,
-          moveHistory: [...state.moveHistory, moveRecord],
-          currentPly: state.moveHistory.length,
+          moveHistory: newHistory,
+          currentPly: newPly,
           selectedSquare: null,
           legalMovesFromSelected: [],
           lastMove: { from: move.from, to: move.to },
           isGameActive: !chess.isGameOver(),
           gameResult: chess.isCheckmate() ? (chess.turn() === 'w' ? '0-1' : '1-0') :
                       chess.isDraw() ? '1/2-1/2' : null,
+          isGeneratingNarrative: true,
+          currentCommentary: null,
+          isMakingMove: false,
         });
 
-        // Generate narrative (async) — passes tiles + breakdown so the LLM
-        // can ground its prose in the verified symbolic facts.
-        const providerState = useProviderStore.getState();
-        const activeProvider = providerState.activeProvider;
-        const providerConfig = providerState.providers[activeProvider];
+        // Async narrative generation — robust index matching by ply & uci
+        (async () => {
+          const providerState = useProviderStore.getState();
+          const activeProvider = providerState.activeProvider;
+          const providerConfig = providerState.providers[activeProvider];
 
-        const finalizeNarrative = (rawCommentary: string): string => {
-          // ─── Anti-hallucination filter (spec §5) ────────────────────────
-          // Verify the LLM's text doesn't contradict the symbolic engine.
-          const synthInput = {
-            fenBefore, fenAfter, moveUci: move.lan, moveSan: move.san,
-            playerColor, seeScore,
-            isCapture: !!move.captured, isCheck: chess.inCheck(),
-            isCheckmate: chess.isCheckmate(),
-            capturedPiece: move.captured,
-            concreteThreats,
-            evalBeforeCp: eBefore.cp, evalAfterCp: eAfter.cp,
+          const finalizeNarrative = (rawCommentary: string): string => {
+            const synthInput = {
+              fenBefore, fenAfter, moveUci: move.lan, moveSan: move.san,
+              playerColor, seeScore,
+              isCapture: !!move.captured, isCheck: chess.inCheck(),
+              isCheckmate: chess.isCheckmate(),
+              capturedPiece: move.captured,
+              concreteThreats,
+              evalBeforeCp: eBefore.cp, evalAfterCp: eAfter.cp,
+            };
+            const check = checkNarrativeAgainstTiles(rawCommentary, tiles, synthInput);
+            if (check.passed) {
+              return rawCommentary;
+            }
+            const correction = `\n\n Verification notice: ${check.violations.join(' ')}`;
+            return rawCommentary + correction;
           };
-          const check = checkNarrativeAgainstTiles(rawCommentary, tiles, synthInput);
-          if (check.passed) {
-            return rawCommentary;
-          }
-          // If the LLM hallucinated, append a system-generated correction
-          // notice so the user sees BOTH the LLM claim and the truth.
-          const correction = `\n\n⚠️ Verification notice: ${check.violations.join(' ')}`;
-          return rawCommentary + correction;
-        };
 
-        if (providerConfig?.apiKey) {
-          set({ isGeneratingNarrative: true });
-          try {
-            const payload = buildPayload({
-              fenBefore, moveUci: move.lan, moveSan: move.san,
-              playerColor, targetElo: state.coachElo,
-              pvContinuation: best.pv,
-            });
-            // Inject the tiles into the payload so the LLM sees them.
-            (payload as any).atomic_rule_tiles = tiles;
-            (payload as any).calculation_breakdown = breakdown;
-            const result = await generateNarrative(payload, {
-              provider: activeProvider,
-              apiKey: providerConfig.apiKey,
-              model: providerConfig.selectedModel,
-            });
-            const finalized = finalizeNarrative(result.commentary);
-            // Patch the move record with the finalized commentary.
-            const updatedHistory = [...get().moveHistory];
-            if (updatedHistory[moveRecord.ply]) {
-              updatedHistory[moveRecord.ply] = {
-                ...updatedHistory[moveRecord.ply],
-                commentary: finalized,
-              };
-            }
-            set({
-              currentCommentary: finalized,
-              isGeneratingNarrative: false,
-              moveHistory: updatedHistory,
-            });
-          } catch {
-            set({ isGeneratingNarrative: false });
-          }
-        } else {
-          // Use local LLM (no API key)
-          set({ isGeneratingNarrative: true });
+          let commentaryText: string | null = null;
           try {
             const payload = buildPayload({
               fenBefore, moveUci: move.lan, moveSan: move.san,
@@ -320,30 +296,45 @@ export const useGameStore = create<GameState>()(
             });
             (payload as any).atomic_rule_tiles = tiles;
             (payload as any).calculation_breakdown = breakdown;
-            const result = await generateNarrative(payload);
-            const finalized = finalizeNarrative(result.commentary);
-            const updatedHistory = [...get().moveHistory];
-            if (updatedHistory[moveRecord.ply]) {
-              updatedHistory[moveRecord.ply] = {
-                ...updatedHistory[moveRecord.ply],
-                commentary: finalized,
-              };
+
+            if (providerConfig?.apiKey) {
+              const result = await generateNarrative(payload, {
+                provider: activeProvider,
+                apiKey: providerConfig.apiKey,
+                model: providerConfig.selectedModel,
+              });
+              commentaryText = finalizeNarrative(result.commentary);
+            } else {
+              const result = await generateNarrative(payload);
+              commentaryText = finalizeNarrative(result.commentary);
             }
-            set({
-              currentCommentary: finalized,
-              isGeneratingNarrative: false,
-              moveHistory: updatedHistory,
-            });
           } catch {
-            set({ isGeneratingNarrative: false });
+            commentaryText = null;
           }
-        }
+
+          // Patch the specific move in moveHistory safely
+          const currentHistory = get().moveHistory;
+          const targetIdx = currentHistory.findIndex(m => m.ply === moveRecord.ply && m.uci === moveRecord.uci);
+          if (targetIdx !== -1) {
+            const updatedHistory = [...currentHistory];
+            updatedHistory[targetIdx] = {
+              ...updatedHistory[targetIdx],
+              commentary: commentaryText || undefined,
+              isGeneratingCommentary: false,
+            };
+            const isCurrentlyViewingThisPly = get().currentPly === moveRecord.ply;
+            set({
+              moveHistory: updatedHistory,
+              currentCommentary: isCurrentlyViewingThisPly ? (commentaryText || null) : get().currentCommentary,
+              isGeneratingNarrative: updatedHistory.some(m => m.isGeneratingCommentary),
+            });
+          }
+        })();
 
         // If Mode A and opponent's turn, schedule AI move
         if (state.mode === 'HUMAN_VS_AI' && !chess.isGameOver() && state.playerColor !== (chess.turn() === 'w' ? 'white' : 'black')) {
           setTimeout(() => {
             const s2 = get();
-            const chess2 = new Chess(s2.fen);
             const aiMove = pickMoveAtElo(s2.fen, s2.aiPlayElo);
             if (aiMove) {
               get().makeMove(aiMove.lan);
@@ -352,6 +343,80 @@ export const useGameStore = create<GameState>()(
         }
 
         return true;
+      },
+
+      generateCommentaryForPly: async (ply: number) => {
+        const state = get();
+        if (ply < 0 || ply >= state.moveHistory.length) return;
+        const targetMove = state.moveHistory[ply];
+        if (targetMove.commentary || targetMove.isGeneratingCommentary) return;
+
+        // Mark move as generating
+        const historyLoading = [...get().moveHistory];
+        historyLoading[ply] = { ...historyLoading[ply], isGeneratingCommentary: true };
+        set({ moveHistory: historyLoading, isGeneratingNarrative: true });
+
+        try {
+          const evalBefore = ply > 0 ? state.moveHistory[ply - 1].evalCp : 0;
+          const payload = buildPayload({
+            fenBefore: targetMove.fenBefore,
+            moveUci: targetMove.uci,
+            moveSan: targetMove.san,
+            playerColor: targetMove.turn,
+            targetElo: state.coachElo,
+            pvContinuation: targetMove.bestMoveSan ? [targetMove.bestMoveSan] : [],
+          });
+          (payload as any).atomic_rule_tiles = targetMove.atomicRuleTiles || [];
+          (payload as any).calculation_breakdown = targetMove.calculationBreakdown;
+
+          const providerState = useProviderStore.getState();
+          const activeProvider = providerState.activeProvider;
+          const providerConfig = providerState.providers[activeProvider];
+
+          const result = await generateNarrative(payload, providerConfig?.apiKey ? {
+            provider: activeProvider,
+            apiKey: providerConfig.apiKey,
+            model: providerConfig.selectedModel,
+          } : undefined);
+
+          const synthInput = {
+            fenBefore: targetMove.fenBefore,
+            fenAfter: targetMove.fenAfter,
+            moveUci: targetMove.uci,
+            moveSan: targetMove.san,
+            playerColor: targetMove.turn,
+            seeScore: targetMove.seeScore || 0,
+            isCapture: !!targetMove.isCapture,
+            isCheck: !!targetMove.isCheck,
+            isCheckmate: !!targetMove.isCheckmate,
+            evalBeforeCp: evalBefore,
+            evalAfterCp: targetMove.evalCp,
+          };
+          const check = checkNarrativeAgainstTiles(result.commentary, targetMove.atomicRuleTiles || [], synthInput);
+          const finalized = check.passed ? result.commentary : result.commentary + `\n\n Verification notice: ${check.violations.join(' ')}`;
+
+          const currHistory = get().moveHistory;
+          if (currHistory[ply]) {
+            const updated = [...currHistory];
+            updated[ply] = { ...updated[ply], commentary: finalized, isGeneratingCommentary: false };
+            const isViewing = get().currentPly === ply;
+            set({
+              moveHistory: updated,
+              currentCommentary: isViewing ? finalized : get().currentCommentary,
+              isGeneratingNarrative: updated.some(m => m.isGeneratingCommentary),
+            });
+          }
+        } catch {
+          const currHistory = get().moveHistory;
+          if (currHistory[ply]) {
+            const updated = [...currHistory];
+            updated[ply] = { ...updated[ply], isGeneratingCommentary: false };
+            set({
+              moveHistory: updated,
+              isGeneratingNarrative: updated.some(m => m.isGeneratingCommentary),
+            });
+          }
+        }
       },
 
       navigateToPly: (ply) => {
@@ -368,6 +433,11 @@ export const useGameStore = create<GameState>()(
           lastMove: move ? { from: move.uci.slice(0, 2), to: move.uci.slice(2, 4) } : null,
           currentCommentary: move?.commentary || null,
         });
+
+        // Trigger commentary generation if missing for this move
+        if (ply >= 0 && move && !move.commentary && !move.isGeneratingCommentary) {
+          get().generateCommentaryForPly(ply);
+        }
       },
 
       resetGame: () => {
@@ -378,6 +448,7 @@ export const useGameStore = create<GameState>()(
           selectedSquare: null,
           legalMovesFromSelected: [],
           isEngineThinking: false,
+          isMakingMove: false,
           isGameActive: false,
           isPaused: false,
           gameResult: null,

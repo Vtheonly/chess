@@ -5,6 +5,7 @@
 import { useGameStore } from '@/store/useGameStore';
 import { ClassificationBadge } from './ClassificationBadge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { MessageSquare } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 export function MoveHistoryTable() {
@@ -61,6 +62,9 @@ export function MoveHistoryTable() {
                     <ClassificationBadge classification={row.white.classification} size="sm" />
                   )}
                   <span className="font-mono">{row.white?.san}</span>
+                  {row.white?.commentary && (
+                    <MessageSquare className="h-3 w-3 text-amber-400 shrink-0 ml-auto" title="Has commentary" />
+                  )}
                 </div>
               </td>
               <td
@@ -75,6 +79,9 @@ export function MoveHistoryTable() {
                     <ClassificationBadge classification={row.black.classification} size="sm" />
                   )}
                   <span className="font-mono">{row.black?.san}</span>
+                  {row.black?.commentary && (
+                    <MessageSquare className="h-3 w-3 text-amber-400 shrink-0 ml-auto" title="Has commentary" />
+                  )}
                 </div>
               </td>
             </tr>

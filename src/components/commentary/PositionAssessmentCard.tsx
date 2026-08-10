@@ -22,7 +22,7 @@ export function PositionAssessmentCard({ assessment }: Props) {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
-            <span className="text-lg">🩺</span>
+            <span className="text-lg"></span>
             Position Health Audit
           </span>
           <span className={`text-xs px-2.5 py-1 rounded-full font-mono font-bold border ${evalBg} ${evalColor}`}>
@@ -39,7 +39,7 @@ export function PositionAssessmentCard({ assessment }: Props) {
           {/* White */}
           <div className="space-y-2 bg-slate-900/30 p-2.5 rounded border border-slate-700/40">
             <div className="font-semibold text-emerald-400 flex items-center gap-1">
-              <span>♔</span> White Key Assets
+              <span></span> White Key Assets
             </div>
             {assessment.whiteStrengths.length > 0 ? (
               <ul className="space-y-1">
@@ -59,7 +59,7 @@ export function PositionAssessmentCard({ assessment }: Props) {
             {assessment.whiteWeaknesses.length > 0 && (
               <div className="mt-2 pt-2 border-t border-slate-800">
                 <div className="font-semibold text-rose-400 flex items-center gap-1 mb-1">
-                  <span>⚠️</span> White Vulnerabilities
+                  <span></span> White Vulnerabilities
                 </div>
                 <ul className="space-y-1">
                   {assessment.whiteWeaknesses.map((item, idx) => (
@@ -76,7 +76,7 @@ export function PositionAssessmentCard({ assessment }: Props) {
           {/* Black */}
           <div className="space-y-2 bg-slate-900/30 p-2.5 rounded border border-slate-700/40">
             <div className="font-semibold text-emerald-400 flex items-center gap-1">
-              <span>♚</span> Black Key Assets
+              <span></span> Black Key Assets
             </div>
             {assessment.blackStrengths.length > 0 ? (
               <ul className="space-y-1">
@@ -96,7 +96,7 @@ export function PositionAssessmentCard({ assessment }: Props) {
             {assessment.blackWeaknesses.length > 0 && (
               <div className="mt-2 pt-2 border-t border-slate-800">
                 <div className="font-semibold text-rose-400 flex items-center gap-1 mb-1">
-                  <span>⚠️</span> Black Vulnerabilities
+                  <span></span> Black Vulnerabilities
                 </div>
                 <ul className="space-y-1">
                   {assessment.blackWeaknesses.map((item, idx) => (

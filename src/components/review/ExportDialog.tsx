@@ -3,6 +3,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Chess } from 'chess.js';
 import { useGameStore } from '@/store/useGameStore';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -97,50 +98,51 @@ function buildAnnotatedPgn(
     '[Annotator "CaissaXAI"]',
   ];
 
-  const lines: string[] = [];
-  let currentLine = '';
+  const validationBoard = new Chess();
+  const tokens: string[] = [];
+
   for (let i = 0; i < moves.length; i++) {
     const m = moves[i];
-    if (m.turn === 'white') {
-      currentLine = `${m.moveNumber}. ${m.san}`;
-    } else {
-      currentLine = `${currentLine.split(' ').slice(-2).join(' ')} ${m.moveNumber}. ${m.san}`.trim();
-      // Actually simpler approach: rebuild
-      currentLine = '';
-      if (m.turn === 'black') {
-        const whitePly = moves[i - 1];
-        currentLine = `${whitePly.moveNumber}. ${whitePly.san} ${m.san}`;
+    // Replay move on validation board to guarantee move legality
+    let executedMove;
+    try {
+      executedMove = validationBoard.move(m.uci);
+    } catch {
+      // If move.uci fails, try san
+      try {
+        executedMove = validationBoard.move(m.san);
+      } catch {
+        // Illegal move encountered in history record - halt PGN here to maintain PGN validity
+        break;
       }
     }
-    // Simpler: always include move number prefix for white, just SAN for black
-    let token: string;
-    if (m.turn === 'white') {
-      token = `${m.moveNumber}. ${m.san}`;
-    } else {
-      // If previous was white move at same number, append; else prefix
-      token = m.san;
-    }
-    // NAG
+    if (!executedMove) break;
+
+    const san = executedMove.san;
+    const moveNum = Math.floor(i / 2) + 1;
+    const isWhite = i % 2 === 0;
+
+    let token = isWhite ? `${moveNum}. ${san}` : `${san}`;
     const nag = m.classification ? NAG_CODES[m.classification] : '';
-    // Commentary
-    const comment = m.commentary ? ` { [CaissaXAI]: ${m.commentary.replace(/[{}]/g, '')} }` : '';
+    const comment = m.commentary ? ` { [CaissaXAI]: ${m.commentary.replace(/[{}]/g, '').trim()} }` : '';
+
     if (nag) token += ` ${nag}`;
     if (comment) token += comment;
-    lines.push(token);
+
+    tokens.push(token);
   }
 
-  const body = formatMovesIntoPairs(lines);
+  const body = formatMovesIntoPairs(tokens);
   return `${headers.join('\n')}\n\n${body} ${result || '*'}`;
 }
 
 function formatMovesIntoPairs(tokens: string[]): string {
-  // Group tokens into lines of ~10 half-moves for readability
   const out: string[] = [];
   let line = '';
   for (let i = 0; i < tokens.length; i++) {
     if (line) line += ' ';
     line += tokens[i];
-    if ((i + 1) % 12 === 0) {
+    if (line.length > 70) {
       out.push(line);
       line = '';
     }

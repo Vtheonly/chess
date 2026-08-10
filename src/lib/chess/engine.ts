@@ -99,7 +99,7 @@ function squareToIndex(sq: Square): number {
 }
 
 function mirrorIndexForBlack(idx: number): number {
-  // Mirror vertically: a8↔a1, h8↔h1
+  // Mirror vertically: a8a1, h8h1
   const file = idx % 8;
   const rank = Math.floor(idx / 8);   // 0 = rank 8
   return (7 - rank) * 8 + file;

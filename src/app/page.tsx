@@ -275,8 +275,8 @@ function ModeAConfig({
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-slate-900 border-slate-700">
-              <SelectItem value="white">♔ White</SelectItem>
-              <SelectItem value="black">♚ Black</SelectItem>
+              <SelectItem value="white"> White</SelectItem>
+              <SelectItem value="black"> Black</SelectItem>
             </SelectContent>
           </Select>
         </div>

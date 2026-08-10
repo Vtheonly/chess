@@ -41,7 +41,7 @@ export function PlayerHeader({ color, name, elo }: Props) {
           className="w-8 h-8 rounded-full flex items-center justify-center text-lg"
           style={{ background: color === 'white' ? '#F1F5F9' : '#0F172A', color: color === 'white' ? '#0F172A' : '#F1F5F9' }}
         >
-          {color === 'white' ? '♔' : '♚'}
+          {color === 'white' ? '' : ''}
         </div>
         <div>
           <div className="text-sm font-medium text-slate-100">{displayName}</div>

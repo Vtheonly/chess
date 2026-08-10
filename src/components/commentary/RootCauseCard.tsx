@@ -17,7 +17,7 @@ export function RootCauseCard({ record }: Props) {
     <div className="bg-rose-950/40 border border-rose-800/80 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between border-b border-rose-900/80 pb-2 mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-xl">☣️</span>
+          <span className="text-xl"></span>
           <h3 className="font-semibold text-rose-200 text-sm tracking-wide uppercase">
             Patient Zero (Root Cause)
           </h3>

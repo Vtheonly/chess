@@ -817,22 +817,22 @@
    817→├────────────────────────────────────────────────────────────────────────────────────────┤
    818→│                                                                                        │
    819→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-   820→│ │  ⚡ GROQ API (Ultra-Fast Inference)                             [ HEALTHY (112ms) ] │ │
-   821→│ │  API Key: [ gsk_••••••••••••••••••••••••••••••••4f2a       👁 ]                    │ │
+   820→│ │   GROQ API (Ultra-Fast Inference)                             [ HEALTHY (112ms) ] │ │
+   821→│ │  API Key: [ gsk_••••••••••••••••••••••••••••••••4f2a        ]                    │ │
    822→│ │  Model:   [ llama-3.1-70b-versatile                                             ▼ ] │ │
    823→│ │  [ Test Connection ]                                                               │ │
    824→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
    825→│                                                                                        │
    826→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-   827→│ │  🌐 OPENROUTER (Multi-Model Hub)                                [ HEALTHY (340ms) ] │ │
-   828→│ │  API Key: [ sk-or-v1-••••••••••••••••••••••••••••••••9a1c  👁 ]                    │ │
+   827→│ │   OPENROUTER (Multi-Model Hub)                                [ HEALTHY (340ms) ] │ │
+   828→│ │  API Key: [ sk-or-v1-••••••••••••••••••••••••••••••••9a1c   ]                    │ │
    829→│ │  Model:   [ anthropic/claude-3.5-sonnet                                         ▼ ] │ │
    830→│ │  [ Test Connection ]                                                               │ │
    831→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
    832→│                                                                                        │
    833→│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
-   834→│ │  💎 GOOGLE AI STUDIO (Gemini)                                   [ HEALTHY (210ms) ] │ │
-   835→│ │  API Key: [ AIzaSy••••••••••••••••••••••••••••••••3k1a     👁 ]                    │ │
+   834→│ │   GOOGLE AI STUDIO (Gemini)                                   [ HEALTHY (210ms) ] │ │
+   835→│ │  API Key: [ AIzaSy••••••••••••••••••••••••••••••••3k1a      ]                    │ │
    836→│ │  Model:   [ gemini-1.5-flash                                                    ▼ ] │ │
    837→│ │  [ Test Connection ]                                                               │ │
    838→│ └────────────────────────────────────────────────────────────────────────────────────┘ │
@@ -867,10 +867,10 @@
    867→  └── Runs Anti-Hallucination Filter on output text
    868→        │
    869→        ├─── [FAIL] ──► Return ProviderHealthResult(status="ERROR", message="...")
-   870→        │                UI renders RED Badge ❌
+   870→        │                UI renders RED Badge 
    871→        │
    872→        └─── [PASS] ──► Return ProviderHealthResult(status="HEALTHY", latency_ms=210)
-   873→                         UI renders GREEN Badge ✅ (Shows 210ms)
+   873→                         UI renders GREEN Badge  (Shows 210ms)
    874→        │
    875→[User plays move on Chessboard]
    876→        │

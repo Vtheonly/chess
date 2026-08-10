@@ -33,6 +33,7 @@ export interface ChessMove {
   bestMoveSan?: string;
   classification?: MoveClassification;
   commentary?: string;
+  isGeneratingCommentary?: boolean;
   arrows?: Array<[string, string, string]>; // [from, to, color]
   highlights?: Array<[string, string]>;      // [square, color]
   seeScore?: number;
@@ -119,31 +120,31 @@ export const PROVIDER_META: Record<ProviderID, { label: string; models: string[]
     label: 'Groq',
     models: ['llama-3.1-70b-versatile', 'mixtral-8x7b-32768', 'llama-3.3-70b-versatile'],
     placeholder: 'gsk_••••••••••••••••••••••••',
-    emoji: '⚡',
+    emoji: '',
   },
   openrouter: {
     label: 'OpenRouter',
     models: ['anthropic/claude-3.5-sonnet', 'deepseek/deepseek-r1', 'meta-llama/llama-3.1-70b-instruct'],
     placeholder: 'sk-or-v1-••••••••••••••••••',
-    emoji: '🌐',
+    emoji: '',
   },
   google_gemini: {
     label: 'Google AI Studio',
     models: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'],
     placeholder: 'AIzaSy••••••••••••••••••••',
-    emoji: '💎',
+    emoji: '',
   },
   openai: {
     label: 'OpenAI',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
     placeholder: 'sk-••••••••••••••••••••••',
-    emoji: '🧠',
+    emoji: '',
   },
   anthropic: {
     label: 'Anthropic',
     models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
     placeholder: 'sk-ant-••••••••••••••••••',
-    emoji: '🎭',
+    emoji: '',
   },
 };
 
@@ -157,9 +158,9 @@ export const ARROW_COLORS = {
 export const CLASSIFICATION_META: Record<MoveClassification, { label: string; color: string; bg: string; symbol: string }> = {
   BRILLIANT:    { label: 'Brilliant',    color: '#10B981', bg: 'rgba(16,185,129,0.15)', symbol: '!!' },
   GREAT:        { label: 'Great',        color: '#3B82F6', bg: 'rgba(59,130,246,0.15)', symbol: '!'  },
-  BEST:         { label: 'Best',         color: '#22C55E', bg: 'rgba(34,197,94,0.15)',  symbol: '★'  },
-  EXCELLENT:    { label: 'Excellent',    color: '#22C55E', bg: 'rgba(34,197,94,0.10)',  symbol: '✓'  },
-  GOOD:         { label: 'Good',         color: '#84CC16', bg: 'rgba(132,204,22,0.10)', symbol: '✓'  },
+  BEST:         { label: 'Best',         color: '#22C55E', bg: 'rgba(34,197,94,0.15)',  symbol: ''  },
+  EXCELLENT:    { label: 'Excellent',    color: '#22C55E', bg: 'rgba(34,197,94,0.10)',  symbol: ''  },
+  GOOD:         { label: 'Good',         color: '#84CC16', bg: 'rgba(132,204,22,0.10)', symbol: ''  },
   BOOK:         { label: 'Book',         color: '#A3A3A3', bg: 'rgba(163,163,163,0.15)', symbol: 'éc' },
   INACCURACY:   { label: 'Inaccuracy',   color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', symbol: '?!' },
   MISTAKE:      { label: 'Mistake',      color: '#F97316', bg: 'rgba(249,115,22,0.15)', symbol: '?'  },
@@ -169,13 +170,13 @@ export const CLASSIFICATION_META: Record<MoveClassification, { label: string; co
 
 // ─── Rule tile metadata (spec §3.1 RULE_METADATA) ────────────────────────────
 export const RULE_CATEGORY_META: Record<RuleCategory, { label: string; icon: string; color: string; bg: string }> = {
-  material:       { label: 'Material',       icon: '⚖',  color: '#A78BFA', bg: 'rgba(167,139,250,0.15)' },
-  tactics:        { label: 'Tactics',        icon: '🎯', color: '#F87171', bg: 'rgba(248,113,113,0.15)' },
-  piece_activity: { label: 'Piece Activity', icon: '♞',  color: '#60A5FA', bg: 'rgba(96,165,250,0.15)' },
-  pawn_structure: { label: 'Pawn Structure', icon: '♟',  color: '#FBBF24', bg: 'rgba(251,191,36,0.15)' },
-  king_safety:    { label: 'King Safety',    icon: '🛡',  color: '#FB7185', bg: 'rgba(251,113,133,0.15)' },
-  space_center:   { label: 'Space / Center', icon: '🌐', color: '#34D399', bg: 'rgba(52,211,153,0.15)' },
-  prophylaxis:    { label: 'Prophylaxis',    icon: '🔮', color: '#C084FC', bg: 'rgba(192,132,252,0.15)' },
+  material:       { label: 'Material',       icon: '',  color: '#A78BFA', bg: 'rgba(167,139,250,0.15)' },
+  tactics:        { label: 'Tactics',        icon: '', color: '#F87171', bg: 'rgba(248,113,113,0.15)' },
+  piece_activity: { label: 'Piece Activity', icon: '',  color: '#60A5FA', bg: 'rgba(96,165,250,0.15)' },
+  pawn_structure: { label: 'Pawn Structure', icon: '',  color: '#FBBF24', bg: 'rgba(251,191,36,0.15)' },
+  king_safety:    { label: 'King Safety',    icon: '',  color: '#FB7185', bg: 'rgba(251,113,133,0.15)' },
+  space_center:   { label: 'Space / Center', icon: '', color: '#34D399', bg: 'rgba(52,211,153,0.15)' },
+  prophylaxis:    { label: 'Prophylaxis',    icon: '', color: '#C084FC', bg: 'rgba(192,132,252,0.15)' },
 };
 
 export const TIER_META: Record<ImportanceTier, { label: string; glow: string; weight: string }> = {

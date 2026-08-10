@@ -19,11 +19,11 @@ export function StrategicChainCard({ chain, onExploreVariation }: Props) {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
-            <span className="text-lg">🔭</span>
+            <span className="text-lg"></span>
             Multi-Move Strategic Chain
           </span>
           <Button size="sm" onClick={onExploreVariation} className="bg-indigo-600 hover:bg-indigo-500">
-            <span>🎬</span> Play Variation
+            <span></span> Play Variation
           </Button>
         </CardTitle>
       </CardHeader>

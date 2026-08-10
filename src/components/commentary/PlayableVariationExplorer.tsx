@@ -76,7 +76,7 @@ export function PlayableVariationExplorer({ steps, onExit }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-700 pb-3 mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">🎬</span>
+          <span className="text-xl"></span>
           <div>
             <h3 className="font-bold text-indigo-300 text-sm tracking-wide">
               PLAYABLE VARIATION EXPLORER
