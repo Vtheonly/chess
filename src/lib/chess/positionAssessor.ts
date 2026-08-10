@@ -1,4 +1,4 @@
-// Position Health Assessor — 360° audit of the board state BEFORE the move.
+// Position Health Assessor — 360° audit of the board state before a move.
 // Answers: "What makes this position good or bad?"
 //
 // Audits: material, bishops, outposts, open files, pawn structure, king safety.
@@ -32,44 +32,45 @@ export function assessPositionHealth(fen: string, evalCp: number): PositionHealt
   const blackStrengths: PositionAuditItem[] = [];
   const blackWeaknesses: PositionAuditItem[] = [];
 
-  // 1. Audit Material
+  // 1. Material Audit
   const matDiff = computeMaterialDiff(board);
   if (Math.abs(matDiff) >= 100) {
+    const side = matDiff > 0 ? 'white' : 'black';
+    const leader = matDiff > 0 ? 'White' : 'Black';
     const item: PositionAuditItem = {
       concept: CONCEPT_TAXONOMY.MATERIAL_ADVANTAGE,
       scoreCp: Math.abs(matDiff),
-      description: `${matDiff > 0 ? 'White' : 'Black'} has a material advantage of +${(Math.abs(matDiff) / 100).toFixed(1)} pawns.`,
-      side: matDiff > 0 ? 'white' : 'black',
+      description: `${leader} holds a +${(Math.abs(matDiff) / 100).toFixed(1)} pawn material lead.`,
+      side,
     };
     if (matDiff > 0) whiteStrengths.push(item);
     else blackStrengths.push(item);
   }
 
-  // 2. Audit Bishops (bishop pair + bad bishops)
+  // 2. Bishops
   auditBishops(board, whiteStrengths, whiteWeaknesses, blackStrengths, blackWeaknesses);
 
-  // 3. Audit Knights & Outposts
+  // 3. Outposts
   auditKnightsAndOutposts(board, whiteStrengths, whiteWeaknesses, blackStrengths, blackWeaknesses);
 
-  // 4. Audit Open Files & Rooks
+  // 4. Open Files
   auditRooksAndFiles(board, whiteStrengths, whiteWeaknesses, blackStrengths, blackWeaknesses);
 
-  // 5. Audit Pawn Structure (isolated, doubled, passed)
+  // 5. Pawn Structure
   auditPawnStructure(board, whiteStrengths, whiteWeaknesses, blackStrengths, blackWeaknesses);
 
-  // 6. Audit King Safety
+  // 6. King Safety
   auditKingSafety(board, whiteStrengths, whiteWeaknesses, blackStrengths, blackWeaknesses);
 
-  // Build status headline
-  let statusHeadline = 'Equilibrium position with equal chances.';
-  if (evalCp > 200) statusHeadline = 'White holds a decisive, winning advantage.';
-  else if (evalCp > 70) statusHeadline = 'White controls a clear positional & tactical advantage.';
-  else if (evalCp < -200) statusHeadline = 'Black holds a decisive, winning advantage.';
-  else if (evalCp < -70) statusHeadline = 'Black controls a clear positional & tactical advantage.';
+  let statusHeadline = 'Balanced position with equal chances.';
+  if (evalCp > 200) statusHeadline = 'White holds a winning advantage.';
+  else if (evalCp > 70) statusHeadline = 'White has a clear positional edge.';
+  else if (evalCp < -200) statusHeadline = 'Black holds a winning advantage.';
+  else if (evalCp < -70) statusHeadline = 'Black has a clear positional edge.';
 
-  const whiteSummary = whiteStrengths.map(s => s.concept.name).join(', ') || 'No major structural strengths';
-  const blackSummary = blackStrengths.map(s => s.concept.name).join(', ') || 'No major structural strengths';
-  const overallSummary = `Position eval is ${evalCp > 0 ? '+' : ''}${(evalCp / 100).toFixed(2)} pawns. White key assets: [${whiteSummary}]. Black key assets: [${blackSummary}].`;
+  const whiteSummary = whiteStrengths.map(s => s.concept.name).join(', ') || 'No major strengths';
+  const blackSummary = blackStrengths.map(s => s.concept.name).join(', ') || 'No major strengths';
+  const overallSummary = `Eval: ${evalCp > 0 ? '+' : ''}${(evalCp / 100).toFixed(2)} pawns. White: [${whiteSummary}]. Black: [${blackSummary}].`;
 
   return {
     evalCp,
@@ -119,26 +120,33 @@ function auditBishops(
       }
     }
   }
-  if (wBishops >= 2) {
+
+  // Bishop pair advantage is exclusive — only one side can have the pair.
+  // A pair against a single enemy bishop is a real advantage; both sides
+  // having two bishops is just parity.
+  if (wBishops >= 2 && bBishops < 2) {
     wStr.push({
       concept: CONCEPT_TAXONOMY.BISHOP_PAIR, scoreCp: 50,
-      description: 'White possesses the Bishop Pair, controlling all light and dark square diagonals.',
+      description: 'White holds the bishop pair advantage — both colors covered by bishops, against Black\'s single bishop.',
       side: 'white',
     });
   }
-  if (bBishops >= 2) {
+  if (bBishops >= 2 && wBishops < 2) {
     bStr.push({
       concept: CONCEPT_TAXONOMY.BISHOP_PAIR, scoreCp: 50,
-      description: 'Black possesses the Bishop Pair, controlling all light and dark square diagonals.',
+      description: 'Black holds the bishop pair advantage — both colors covered by bishops, against White\'s single bishop.',
       side: 'black',
     });
   }
-  // Check for bad bishops (≥3 own pawns on same color complex)
+
+  // Bad-bishop detection: only flag if the bishop's forward diagonals are
+  // genuinely obstructed by *fixed* own pawns (pawns that can't easily move).
+  // A bishop behind a movable pawn chain is NOT bad — it's just undeveloped.
   for (const sq of wBishopSquares) {
     if (isBadBishopHelper(board, sq, 'w')) {
       wWeak.push({
         concept: CONCEPT_TAXONOMY.BAD_BISHOP, scoreCp: -35,
-        description: `White bishop on ${sq} is hemmed in by own pawns on the same color complex.`,
+        description: `White bishop on ${sq} is restricted by fixed pawns on the same color complex.`,
         side: 'white',
       });
     }
@@ -147,7 +155,7 @@ function auditBishops(
     if (isBadBishopHelper(board, sq, 'b')) {
       bWeak.push({
         concept: CONCEPT_TAXONOMY.BAD_BISHOP, scoreCp: -35,
-        description: `Black bishop on ${sq} is hemmed in by own pawns on the same color complex.`,
+        description: `Black bishop on ${sq} is restricted by fixed pawns on the same color complex.`,
         side: 'black',
       });
     }
@@ -160,14 +168,30 @@ function isBadBishopHelper(board: Chess, square: Square, color: 'w' | 'b'): bool
   const sqFile = square.charCodeAt(0) - 'a'.charCodeAt(0);
   const sqRank = parseInt(square[1], 10) - 1;
   const isLight = (sqFile + sqRank) % 2 === 0;
+
+  // Look at own pawns on the same color complex that are AHEAD of the bishop
+  // (closer to enemy) AND blocked (i.e. can't advance because a pawn or piece
+  // sits in front). A blocked same-color pawn is "fixed" — that's what makes
+  // the bishop bad.
   const pawns = board.findPiece({ type: 'p', color: color as any });
-  let sameColor = 0;
+  let fixedSameColorPawns = 0;
   for (const psq of pawns) {
     const pf = psq.charCodeAt(0) - 'a'.charCodeAt(0);
     const pr = parseInt(psq[1], 10) - 1;
-    if ((pf + pr) % 2 === 0 === isLight) sameColor++;
+    // Same color complex?
+    if ((pf + pr) % 2 === 0 !== isLight) continue;
+    // Must be ahead of bishop (toward enemy)
+    const isAhead = color === 'w' ? pr > sqRank : pr < sqRank;
+    if (!isAhead) continue;
+    // Is the square in front of this pawn occupied?
+    const aheadRank = color === 'w' ? pr + 1 : pr - 1;
+    if (aheadRank < 0 || aheadRank > 7) continue;
+    const aheadSq = `${'abcdefgh'[pf]}${aheadRank + 1}` as Square;
+    if (board.get(aheadSq) !== null) {
+      fixedSameColorPawns++;
+    }
   }
-  return sameColor >= 3;
+  return fixedSameColorPawns >= 2;
 }
 
 function auditKnightsAndOutposts(
@@ -175,26 +199,57 @@ function auditKnightsAndOutposts(
   wStr: PositionAuditItem[], wWeak: PositionAuditItem[],
   bStr: PositionAuditItem[], bWeak: PositionAuditItem[],
 ) {
+  // A real outpost requires: rank in enemy half + friendly pawn support +
+  // no enemy pawn can challenge it. We don't just rubber-stamp every knight
+  // on ranks 4-6.
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
       const sq = (String.fromCharCode(97 + f) + (8 - r)) as Square;
       const p = board.get(sq);
-      if (p && p.type === 'n') {
-        const rank = 8 - r;
-        if (p.color === 'w' && rank >= 4 && rank <= 6) {
-          wStr.push({
-            concept: CONCEPT_TAXONOMY.KNIGHT_OUTPOST, scoreCp: 45,
-            description: `White knight anchored on outpost square ${sq}.`,
-            side: 'white',
-          });
-        } else if (p.color === 'b' && rank >= 3 && rank <= 5) {
-          bStr.push({
-            concept: CONCEPT_TAXONOMY.KNIGHT_OUTPOST, scoreCp: 45,
-            description: `Black knight anchored on outpost square ${sq}.`,
-            side: 'black',
-          });
-        }
-      }
+      if (!p || p.type !== 'n') continue;
+      const rank = 8 - r;
+      const file = f;
+
+      const color: 'w' | 'b' = p.color as any;
+      const enemyColor = color === 'w' ? 'b' : 'w';
+
+      // Must be on ranks 4-6 for White, 3-5 for Black
+      const inEnemyHalf = color === 'w'
+        ? rank >= 4 && rank <= 6
+        : rank >= 3 && rank <= 5;
+      if (!inEnemyHalf) continue;
+
+      // Friendly pawn support?
+      const supporters = board.attackers(sq, color).filter(s => {
+        const sp = board.get(s);
+        return sp && sp.type === 'p' && sp.color === color;
+      });
+      if (supporters.length === 0) continue;
+
+      // Enemy pawn on adjacent file that could challenge?
+      const enemyPawns = board.findPiece({ type: 'p', color: enemyColor as any });
+      const isChallengable = enemyPawns.some(psq => {
+        const pf = psq.charCodeAt(0) - 'a'.charCodeAt(0);
+        const pr = parseInt(psq[1], 10) - 1;
+        if (Math.abs(pf - file) !== 1) return false;
+        // Enemy pawn can attack this square if it's "ahead" of the square
+        // from its perspective. For White knights, enemy (Black) pawn must
+        // be on a higher rank (closer to white's side). For Black knights,
+        // enemy (White) pawn must be on a lower rank.
+        return color === 'w' ? pr >= rank - 1 : pr <= rank + 1;
+      });
+      if (isChallengable) continue;
+
+      // Real outpost
+      const side: 'white' | 'black' = color === 'w' ? 'white' : 'black';
+      const sideName = color === 'w' ? 'White' : 'Black';
+      const item: PositionAuditItem = {
+        concept: CONCEPT_TAXONOMY.KNIGHT_OUTPOST, scoreCp: 45,
+        description: `${sideName} knight is anchored on an outpost at ${sq} — defended by a pawn and unchallengeable by enemy pawns.`,
+        side,
+      };
+      if (color === 'w') wStr.push(item);
+      else bStr.push(item);
     }
   }
 }
@@ -223,14 +278,14 @@ function auditRooksAndFiles(
       if (whiteRooks > 0) {
         wStr.push({
           concept: CONCEPT_TAXONOMY.OPEN_FILE, scoreCp: 35,
-          description: `White controls open ${fileChar}-file with rook.`,
+          description: `White rook controls the open ${fileChar}-file.`,
           side: 'white',
         });
       }
       if (blackRooks > 0) {
         bStr.push({
           concept: CONCEPT_TAXONOMY.OPEN_FILE, scoreCp: 35,
-          description: `Black controls open ${fileChar}-file with rook.`,
+          description: `Black rook controls the open ${fileChar}-file.`,
           side: 'black',
         });
       }
@@ -341,7 +396,7 @@ function auditPawnStructure(
           description: `White has a passed pawn on ${fileChar}${wr}.`,
           side: 'white',
         });
-        break; // one per file is enough
+        break;
       }
     }
     for (const br of bPawnRanks) {
@@ -382,35 +437,72 @@ function auditKingSafety(
   const wKingSq = findKingSqHelper(board, 'w');
   const bKingSq = findKingSqHelper(board, 'b');
 
-  // Pawn shield check
-  if (wKingSq) {
-    const shieldCount = countPawnShield(board, wKingSq, 'w');
-    if (shieldCount >= 2 && (wKingSq === 'g1' || wKingSq === 'c1' || wKingSq === 'h1' || wKingSq === 'b1')) {
-      wStr.push({
-        concept: CONCEPT_TAXONOMY.KING_PAWN_SHIELD, scoreCp: 40,
-        description: 'White king is castled and protected behind an intact pawn shield.',
+  // Currently in check?
+  if (board.inCheck()) {
+    const turn = board.turn();
+    if (turn === 'w') {
+      wWeak.push({
+        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -80,
+        description: `White king on ${wKingSq || 'board'} is currently in check!`,
         side: 'white',
       });
-    } else if (shieldCount === 0) {
+    } else {
+      bWeak.push({
+        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -80,
+        description: `Black king on ${bKingSq || 'board'} is currently in check!`,
+        side: 'black',
+      });
+    }
+  }
+
+  // Pawn shield only counts if king is castled (back rank)
+  if (wKingSq) {
+    const wRank = parseInt(wKingSq[1], 10);
+    if (wRank === 1) {
+      const shieldCount = countPawnShield(board, wKingSq, 'w');
+      if (shieldCount >= 2) {
+        wStr.push({
+          concept: CONCEPT_TAXONOMY.KING_PAWN_SHIELD, scoreCp: 40,
+          description: 'White king is castled and protected behind an intact pawn shield.',
+          side: 'white',
+        });
+      } else if (shieldCount === 0) {
+        wWeak.push({
+          concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -70,
+          description: 'White king lacks pawn shield cover and is vulnerable to direct attacks.',
+          side: 'white',
+        });
+      }
+    } else if (wRank >= 3 && wRank <= 6) {
+      // King has marched into the center — exposed
       wWeak.push({
-        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -70,
-        description: 'White king lacks pawn shield cover and is vulnerable to direct attacks.',
+        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -120,
+        description: `White king on ${wKingSq} has marched into the center and is dangerously exposed.`,
         side: 'white',
       });
     }
   }
   if (bKingSq) {
-    const shieldCount = countPawnShield(board, bKingSq, 'b');
-    if (shieldCount >= 2 && (bKingSq === 'g8' || bKingSq === 'c8' || bKingSq === 'h8' || bKingSq === 'b8')) {
-      bStr.push({
-        concept: CONCEPT_TAXONOMY.KING_PAWN_SHIELD, scoreCp: 40,
-        description: 'Black king is castled and protected behind an intact pawn shield.',
-        side: 'black',
-      });
-    } else if (shieldCount === 0) {
+    const bRank = parseInt(bKingSq[1], 10);
+    if (bRank === 8) {
+      const shieldCount = countPawnShield(board, bKingSq, 'b');
+      if (shieldCount >= 2) {
+        bStr.push({
+          concept: CONCEPT_TAXONOMY.KING_PAWN_SHIELD, scoreCp: 40,
+          description: 'Black king is castled and protected behind an intact pawn shield.',
+          side: 'black',
+        });
+      } else if (shieldCount === 0) {
+        bWeak.push({
+          concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -70,
+          description: 'Black king lacks pawn shield cover and is vulnerable to direct attacks.',
+          side: 'black',
+        });
+      }
+    } else if (bRank >= 3 && bRank <= 6) {
       bWeak.push({
-        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -70,
-        description: 'Black king lacks pawn shield cover and is vulnerable to direct attacks.',
+        concept: CONCEPT_TAXONOMY.KING_EXPOSURE, scoreCp: -120,
+        description: `Black king on ${bKingSq} has marched into the center and is dangerously exposed.`,
         side: 'black',
       });
     }

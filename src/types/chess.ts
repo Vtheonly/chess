@@ -116,33 +116,54 @@ export interface ProviderHealthResult {
 }
 
 export const PROVIDER_META: Record<ProviderID, { label: string; models: string[]; placeholder: string; emoji: string }> = {
+  // Groq production models — verified live on console.groq.com/docs/models (Aug 2026).
+  // Removed deprecated: mixtral-8x7b-32768, llama-3.1-70b-versatile (sunset), all
+  // llama-3.2-* previews, deepseek-r1-distill-* (sunset Sep 2025), qwen-qwq-32b.
+  // Current production text models only.
   groq: {
     label: 'Groq',
-    models: ['llama-3.1-70b-versatile', 'mixtral-8x7b-32768', 'llama-3.3-70b-versatile'],
+    models: [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+      'qwen/qwen3-32b',
+    ],
     placeholder: 'gsk_••••••••••••••••••••••••',
     emoji: '',
   },
+  // OpenRouter models — verified live via GET https://openrouter.ai/api/v1/models (Aug 2026).
+  // Removed: anthropic/claude-3.5-sonnet (no longer in catalog), meta-llama/llama-3.1-70b-instruct
+  // (superseded). Current top-tier models from each provider.
   openrouter: {
     label: 'OpenRouter',
-    models: ['anthropic/claude-3.5-sonnet', 'deepseek/deepseek-r1', 'meta-llama/llama-3.1-70b-instruct'],
+    models: [
+      'anthropic/claude-sonnet-5',
+      'anthropic/claude-opus-5',
+      'deepseek/deepseek-v3.2',
+      'deepseek/deepseek-r1',
+      'meta-llama/llama-3.3-70b-instruct',
+      'google/gemini-2.5-flash',
+      'qwen/qwen3-coder',
+    ],
     placeholder: 'sk-or-v1-••••••••••••••••••',
     emoji: '',
   },
   google_gemini: {
     label: 'Google AI Studio',
-    models: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'],
+    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
     placeholder: 'AIzaSy••••••••••••••••••••',
     emoji: '',
   },
   openai: {
     label: 'OpenAI',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'],
     placeholder: 'sk-••••••••••••••••••••••',
     emoji: '',
   },
   anthropic: {
     label: 'Anthropic',
-    models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+    models: ['claude-sonnet-5-20250514', 'claude-opus-5-20250805', 'claude-3-5-haiku-20241022'],
     placeholder: 'sk-ant-••••••••••••••••••',
     emoji: '',
   },

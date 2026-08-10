@@ -77,28 +77,45 @@ async function callOpenAICompatible(url: string, apiKey: string, model: string, 
     headers['HTTP-Referer'] = 'https://caissaxai.com';
     headers['X-Title'] = 'CaissaXAI Chess Engine';
   }
+
+  // Reasoning models (deepseek-r1, o1/o3/o4, gpt-oss, kimi, qwq, qwen3-*)
+  // reject `response_format` and `temperature != 1`, and need higher
+  // max_tokens for their thinking phase.
+  const isReasoningModel =
+    /deepseek-r1|deepseek-v3\.2|o1|o3|o4|gpt-oss|kimi|qwq|qwen3-coder|qwen3-|reasoning/i.test(model);
+
+  const reqBody: Record<string, any> = {
+    model,
+    messages: [
+      { role: 'system', content: 'You are a chess commentary generator. Output ONLY natural-language commentary text, no JSON, no thinking tags.' },
+      { role: 'user', content: userContent },
+    ],
+    max_tokens: isReasoningModel ? 2048 : 600,
+  };
+  if (!isReasoningModel) {
+    reqBody.temperature = 0.4;
+    reqBody.response_format = { type: 'text' };
+  }
+
   const resp = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: 'You are a chess commentary generator. Output ONLY natural-language text.' },
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.2,
-      max_tokens: 400,
-      response_format: { type: 'text' },
-    }),
+    body: JSON.stringify(reqBody),
   });
   if (!resp.ok) {
     const errText = await resp.text();
-    const err: any = new Error(`${provider} API ${resp.status}: ${errText.slice(0, 200)}`);
+    const err: any = new Error(`${provider} API ${resp.status}: ${errText.slice(0, 400)}`);
     err.status = resp.status;
     throw err;
   }
   const data = await resp.json();
-  return data.choices?.[0]?.message?.content?.trim() || '';
+  // Reasoning models may put their final answer in message.content (OpenAI style)
+  // or in message.reasoning (some providers). Discard thinking.
+  const choice = data.choices?.[0];
+  return choice?.message?.content?.trim() ||
+         choice?.message?.reasoning?.trim() ||
+         choice?.text?.trim() ||
+         '';
 }
 
 async function callAnthropic(apiKey: string, model: string, userContent: string): Promise<string> {
@@ -111,19 +128,22 @@ async function callAnthropic(apiKey: string, model: string, userContent: string)
     },
     body: JSON.stringify({
       model,
-      max_tokens: 400,
-      system: 'You are a chess commentary generator. Output ONLY natural-language text.',
+      max_tokens: 600,
+      system: 'You are a chess commentary generator. Output ONLY natural-language commentary text.',
       messages: [{ role: 'user', content: userContent }],
     }),
   });
   if (!resp.ok) {
     const errText = await resp.text();
-    const err: any = new Error(`Anthropic API ${resp.status}: ${errText.slice(0, 200)}`);
+    const err: any = new Error(`Anthropic API ${resp.status}: ${errText.slice(0, 400)}`);
     err.status = resp.status;
     throw err;
   }
   const data = await resp.json();
-  return data.content?.[0]?.text?.trim() || '';
+  // Anthropic returns content as an array of blocks (text, thinking, etc).
+  // Concatenate all text blocks and discard thinking.
+  const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text);
+  return textBlocks.join(' ').trim();
 }
 
 async function callGemini(apiKey: string, model: string, userContent: string): Promise<string> {
@@ -133,12 +153,12 @@ async function callGemini(apiKey: string, model: string, userContent: string): P
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: userContent }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+      generationConfig: { temperature: 0.4, maxOutputTokens: 600, responseMimeType: 'text/plain' },
     }),
   });
   if (!resp.ok) {
     const errText = await resp.text();
-    const err: any = new Error(`Gemini API ${resp.status}: ${errText.slice(0, 200)}`);
+    const err: any = new Error(`Gemini API ${resp.status}: ${errText.slice(0, 400)}`);
     err.status = resp.status;
     throw err;
   }

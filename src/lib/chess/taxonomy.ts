@@ -224,8 +224,8 @@ export const CONCEPT_TAXONOMY: Record<string, ConceptDefinition> = {
     weightCp: 100,
   },
   PURE_CALCULATION: {
-    id: 'PURE_CALCULATION', name: 'Deep Calculation Line (PV-Driven)', category: 'calculation', icon: '',
-    description: 'Driven by Stockfish concrete tactical calculation rather than a static rule.',
+    id: 'PURE_CALCULATION', name: 'Tactical Continuation', category: 'calculation', icon: '',
+    description: 'A quiet move whose value comes from the engine\'s concrete lookahead rather than a single static rule — describe what the piece actually does on its new square.',
     weightCp: 50,
   },
 };

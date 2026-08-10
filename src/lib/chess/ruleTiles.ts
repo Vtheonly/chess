@@ -1,4 +1,5 @@
-// RuleTileSynthesizer — port of the spec's Python `RuleTileSynthesizer` (§3.1).
+// RuleTileSynthesizer — Generates human, chess-literate rule tiles and exact
+// point calculations.
 //
 // Takes a ChessMove + Layer-2 strategic features (computed by the engine)
 // and produces:
@@ -7,9 +8,7 @@
 //
 // The synthesizer is the SINGLE SOURCE OF TRUTH for which rules fired.
 // The LLM is never allowed to invent rule tiles — it only narrates the
-// tiles we hand it.  This is the architectural fix for the hallucination
-// issue flagged in the spec (LLM claiming "c6 develops the bishop" when
-// the symbolic engine proves is_development=false).
+// tiles we hand it.
 
 import { Chess, Square, PieceSymbol } from 'chess.js';
 import type {
@@ -21,8 +20,12 @@ import type {
 } from '@/types/chess';
 import { evaluate } from './engine';
 
+// Re-export so consumers can `import { type AtomicRuleTile } from './ruleTiles'`
+// without needing to know we route it through @/types/chess.
+export type { AtomicRuleTile } from '@/types/chess';
+
 // ---------------------------------------------------------------------------
-// Rule metadata — names, principles, icons (spec §3.1 RULE_METADATA)
+// Rule metadata — names, principles, icons
 // ---------------------------------------------------------------------------
 interface RuleMeta {
   name: string;
@@ -36,172 +39,166 @@ const RULE_METADATA: Record<string, RuleMeta> = {
   KNIGHT_OUTPOST: {
     name: 'Knight Outpost',
     category: 'piece_activity',
-    principle: 'Knights are most dominant when stationed on unchallengeable central outposts in enemy territory.',
+    principle: 'Posts a knight on an advanced, defended square where enemy pawns cannot challenge it.',
     baseScoreCp: 41,
     tier: 'PRIMARY',
   },
   BISHOP_OUTPOST: {
     name: 'Bishop Outpost',
     category: 'piece_activity',
-    principle: 'A bishop on an outpost square controls long diagonals without being challenged by enemy pawns.',
+    principle: 'Anchors a bishop on an advanced square to dominate long diagonals.',
     baseScoreCp: 30,
     tier: 'SECONDARY',
   },
   CONCRETE_THREAT: {
-    name: 'Concrete Threat Created',
+    name: 'Tactical Attack',
     category: 'tactics',
-    principle: 'Attacking enemy pieces forces defensive responses and gains initiative.',
+    principle: 'Creates an immediate threat against an undefended or high-value enemy target.',
     baseScoreCp: 60,
     tier: 'PRIMARY',
   },
   CENTER_CONTROL: {
-    name: 'Center Control',
+    name: 'Central Control',
     category: 'space_center',
-    principle: 'Control of central squares (d4, d5, e4, e5) dictates piece mobility across the board.',
+    principle: 'Increases pressure and attack coverage on the key central squares (d4, d5, e4, e5).',
     baseScoreCp: 14,
     tier: 'SECONDARY',
   },
   OPEN_FILE: {
     name: 'Open File Control',
     category: 'piece_activity',
-    principle: 'Rooks belong on open files where their long-range power is unrestricted.',
+    principle: 'Claims an open file with a rook or queen to infiltrate the opponent\'s camp.',
     baseScoreCp: 25,
     tier: 'SECONDARY',
   },
   PAWN_ISOLATION: {
-    name: 'Isolated Pawn',
+    name: 'Isolated Pawn Weakness',
     category: 'pawn_structure',
-    principle: 'An isolated pawn cannot be defended by other pawns and becomes a long-term weakness.',
+    principle: 'Creates an isolated pawn that lacks adjacent pawn support.',
     baseScoreCp: -20,
     tier: 'SECONDARY',
   },
   PAWN_DOUBLED: {
     name: 'Doubled Pawns',
     category: 'pawn_structure',
-    principle: 'Doubled pawns cannot defend each other and reduce mobility along the file.',
+    principle: 'Stacks pawns on the same file, reducing their mobility and defensive synergy.',
     baseScoreCp: -15,
     tier: 'MINOR',
   },
   PAWN_PASSED: {
-    name: 'Passed Pawn',
+    name: 'Passed Pawn Advanced',
     category: 'pawn_structure',
-    principle: 'A passed pawn has no enemy pawns blocking its advance and is a major endgame asset.',
+    principle: 'Advances a passed pawn with no opposing pawns in front to block its promotion path.',
     baseScoreCp: 35,
     tier: 'PRIMARY',
   },
   KING_EXPOSURE: {
     name: 'King Exposure',
     category: 'king_safety',
-    principle: 'A king lacking pawn shield cover is vulnerable to direct piece attacks.',
+    principle: 'Exposes the king by weakening or stripping away its pawn cover.',
     baseScoreCp: -45,
     tier: 'PRIMARY',
   },
   KING_ATTACK: {
     name: 'King Zone Attack',
     category: 'king_safety',
-    principle: 'Concentrating attackers near the enemy king creates mating threats and forces defensive play.',
+    principle: 'Brings attacking forces near the enemy king to build mating threats.',
     baseScoreCp: 28,
     tier: 'PRIMARY',
   },
   DEVELOPMENT: {
     name: 'Piece Development',
     category: 'piece_activity',
-    principle: 'Developing a minor piece from its home rank increases mobility and prepares castling.',
+    principle: 'Develops a minor piece from its starting square into active play.',
     baseScoreCp: 18,
     tier: 'SECONDARY',
   },
   MATERIAL_GAIN: {
     name: 'Material Won',
     category: 'material',
-    principle: 'Winning material is the most concrete advantage — every centipawn counts.',
-    baseScoreCp: 0,  // dynamic — set from SEE
+    principle: 'Wins material cleanly, creating a permanent piece or pawn advantage.',
+    baseScoreCp: 0,
     tier: 'PRIMARY',
   },
   MATERIAL_LOSS: {
     name: 'Material Lost',
     category: 'material',
-    principle: 'Losing material without compensation is the most direct path to a losing position.',
-    baseScoreCp: 0,  // dynamic — set from SEE (negative)
+    principle: 'Gives up material, requiring tactical compensation to stay equal.',
+    baseScoreCp: 0,
     tier: 'PRIMARY',
   },
   CHECK_DELIVERED: {
     name: 'Check Delivered',
     category: 'tactics',
-    principle: 'Giving check forces the opponent to respond immediately, gaining a tempo.',
+    principle: 'Gives check to the enemy king, seizing the initiative and forcing an escape move.',
     baseScoreCp: 12,
     tier: 'SECONDARY',
   },
   MOBILITY_GAIN: {
     name: 'Mobility Gain',
     category: 'piece_activity',
-    principle: 'Increasing the number of legal move options improves flexibility and piece coordination.',
+    principle: 'Opens up new squares and lines for your pieces.',
     baseScoreCp: 10,
     tier: 'MINOR',
   },
   BAD_BISHOP: {
-    name: 'Bad Bishop Relieved',
+    name: 'Bad Bishop Freed',
     category: 'piece_activity',
-    principle: 'A bishop blocked by its own pawns on the same color complex is bad; freeing its diagonals restores its power.',
+    principle: 'Frees a restricted bishop from behind its own fixed pawns.',
     baseScoreCp: 35,
     tier: 'SECONDARY',
   },
   ROOK_ON_7TH: {
     name: 'Rook on 7th Rank',
     category: 'piece_activity',
-    principle: 'Rooks on the 7th rank (2nd for Black) attack enemy pawns at their base and trap the enemy king.',
+    principle: 'Infiltrates the 7th rank with a rook, attacking pawns and confining the king.',
     baseScoreCp: 45,
     tier: 'PRIMARY',
   },
   SEMI_OPEN_FILE: {
-    name: 'Semi-Open File Control',
+    name: 'Semi-Open File Pressure',
     category: 'piece_activity',
-    principle: 'A file with no friendly pawns allows rooks to pressure enemy pawns directly.',
+    principle: 'Places a rook on a semi-open file to pressure enemy pawns.',
     baseScoreCp: 20,
     tier: 'MINOR',
   },
   BACKWARD_PAWN: {
-    name: 'Backward Pawn',
+    name: 'Backward Pawn Created',
     category: 'pawn_structure',
-    principle: 'A pawn that cannot advance safely and has no pawn behind it is a permanent target.',
+    principle: 'Creates a backward pawn that cannot advance safely.',
     baseScoreCp: -25,
     tier: 'SECONDARY',
   },
   PAWN_SHIELD: {
-    name: 'King Pawn Shield Strengthened',
+    name: 'King Protection',
     category: 'king_safety',
-    principle: 'Pawns directly in front of a castled king form an essential barrier against enemy piece attacks.',
+    principle: 'Strengthens the pawn barrier protecting the castled king.',
     baseScoreCp: 35,
     tier: 'SECONDARY',
   },
   KING_TROPISM: {
-    name: 'King Proximity Attack',
+    name: 'King Attack Pressure',
     category: 'king_safety',
-    principle: 'Concentrating heavy pieces near the enemy king zone creates mating threats.',
+    principle: 'Marches attacking pieces closer to the enemy king.',
     baseScoreCp: 30,
     tier: 'PRIMARY',
   },
   SPACE_ADVANTAGE: {
-    name: 'Space Advantage',
+    name: 'Space Control',
     category: 'space_center',
-    principle: 'Advancing pawns past the 4th rank restricts enemy piece maneuvers and creates room for your pieces.',
+    principle: 'Claims space in enemy territory, cramping opponent piece mobility.',
     baseScoreCp: 25,
     tier: 'MINOR',
   },
   PIN_CREATED: {
     name: 'Pin Created',
     category: 'tactics',
-    principle: 'Pinning an enemy piece against their king or queen restricts its movement completely.',
+    principle: 'Pins an enemy piece against a higher-value target or the king.',
     baseScoreCp: 60,
     tier: 'PRIMARY',
   },
 };
 
-// ---------------------------------------------------------------------------
-// Phase calculation (Stockfish-style)
-//   • Phase = 1.0  → pure middlegame (all pieces on board)
-//   • Phase = 0.0  → pure endgame (only kings + pawns)
-//   We use the standard Stockfish phase weights: N=1, B=1, R=2, Q=4, total=24.
-// ---------------------------------------------------------------------------
 const PHASE_WEIGHTS: Record<string, number> = { n: 1, b: 1, r: 2, q: 4 };
 const TOTAL_PHASE = 24;
 
@@ -212,24 +209,21 @@ export function computeGamePhase(fen: string): number {
     const lower = ch.toLowerCase();
     if (PHASE_WEIGHTS[lower]) nonPawnMaterial += PHASE_WEIGHTS[lower];
   }
-  // Clamp: 0 → endgame (0.0), 24 → middlegame (1.0)
   return Math.min(1.0, nonPawnMaterial / TOTAL_PHASE);
 }
 
 // ---------------------------------------------------------------------------
-// Outpost detection (ported from Python Layer-2)
+// Outpost detection
 // ---------------------------------------------------------------------------
 function isOutpostSquare(board: Chess, square: Square, color: 'w' | 'b'): boolean {
-  const file = square.charCodeAt(0) - 'a'.charCodeAt(0);  // 0..7
-  const rank = parseInt(square[1], 10) - 1;                // 0..7
+  const file = square.charCodeAt(0) - 'a'.charCodeAt(0);
+  const rank = parseInt(square[1], 10) - 1;
 
-  // Rank restrictions
   const rankLo = color === 'w' ? 3 : 2;
   const rankHi = color === 'w' ? 5 : 4;
   if (rank < rankLo || rank > rankHi) return false;
 
-  // Friendly pawn support
-  const attackers = board.attackers(color, square);
+  const attackers = board.attackers(square, color);
   let hasPawnSupport = false;
   for (const sq of attackers) {
     const p = board.get(sq);
@@ -240,7 +234,6 @@ function isOutpostSquare(board: Chess, square: Square, color: 'w' | 'b'): boolea
   }
   if (!hasPawnSupport) return false;
 
-  // No enemy pawn can attack this square (current or future)
   const enemyColor = color === 'w' ? 'b' : 'w';
   const enemyPawns = board.findPiece({ type: 'p', color: enemyColor as any });
   for (const psq of enemyPawns) {
@@ -254,7 +247,7 @@ function isOutpostSquare(board: Chess, square: Square, color: 'w' | 'b'): boolea
 }
 
 // ---------------------------------------------------------------------------
-// Pawn structure helpers (lightweight — for tile generation only)
+// Pawn structure helpers
 // ---------------------------------------------------------------------------
 function pawnStructureCounts(fen: string, color: 'w' | 'b') {
   const board = new Chess(fen);
@@ -275,7 +268,6 @@ function pawnStructureCounts(fen: string, color: 'w' | 'b') {
     const right = f < 7 ? files[f + 1].length : 0;
     if (left === 0 && right === 0) isolated++;
     for (const r of files[f]) {
-      // Passed: no enemy pawn on same or adjacent files ahead
       const isPassed = !enemyPawns.some(esq => {
         const ef = esq.charCodeAt(0) - 'a'.charCodeAt(0);
         const er = parseInt(esq[1], 10) - 1;
@@ -283,8 +275,6 @@ function pawnStructureCounts(fen: string, color: 'w' | 'b') {
         return color === 'w' ? er > r : er < r;
       });
       if (isPassed) passed++;
-      // Backward: no friendly pawn behind (on adjacent files at lower rank for white)
-      // AND an enemy stopper pawn exists ahead on adjacent file
       const behindRank = color === 'w' ? r - 1 : r + 1;
       const hasFriendBehind = (left > 0 || right > 0) && files[f-1]?.includes(behindRank) || files[f+1]?.includes(behindRank);
       const stopperRank = color === 'w' ? r + 2 : r - 2;
@@ -313,7 +303,7 @@ export interface SynthesizerInput {
   isCheck: boolean;
   isCheckmate: boolean;
   capturedPiece?: string;  // 'p', 'n', 'b', 'r', 'q'
-  concreteThreats: Array<{ san: string; gainCp: number; target: string; piece: string }>;
+  concreteThreats?: Array<{ san: string; gainCp: number; target: string; piece: string }>;
   evalBeforeCp: number;
   evalAfterCp: number;
   bestMoveSan?: string;
@@ -321,7 +311,7 @@ export interface SynthesizerInput {
 }
 
 // ---------------------------------------------------------------------------
-// Main synthesizer — generates tiles + breakdown
+// Main synthesizer
 // ---------------------------------------------------------------------------
 export function generateTilesAndCalc(input: SynthesizerInput): {
   tiles: AtomicRuleTile[];
@@ -337,30 +327,32 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
   const fromSquare = input.moveUci.slice(0, 2);
   const toSquare = input.moveUci.slice(2, 4);
 
-  // ── Material tile (always first if capture) ──────────────────────────────
+  // 1. MATERIAL
   if (input.isCapture && input.capturedPiece) {
     const pieceValues: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900 };
-    const capturedValue = pieceValues[input.capturedPiece] || 0;
-    const seeNet = input.seeScore;  // net gain (positive = won material)
+    const seeNet = input.seeScore;
 
     if (Math.abs(seeNet) >= 50) {
       const ruleId = seeNet > 0 ? 'MATERIAL_GAIN' : 'MATERIAL_LOSS';
       const meta = RULE_METADATA[ruleId];
       const baseScore = Math.abs(seeNet);
       const finalScore = Math.round(baseScore * phase);
+      const pieceName = pieceFullName(input.capturedPiece);
       tiles.push({
         ruleId,
-        ruleName: seeNet > 0 ? `Won ${input.capturedPiece.toUpperCase()} piece` : `Lost material (${seeNet}cp)`,
+        ruleName: seeNet > 0 ? `Captured ${pieceName}` : `Lost Material`,
         category: meta.category,
         rawDeltaCp: baseScore,
         weightedPointsCp: seeNet > 0 ? finalScore : -finalScore,
-        principleSummary: meta.principle,
+        principleSummary: seeNet > 0
+          ? `Wins a ${pieceName.toLowerCase()} on ${toSquare}.`
+          : `Gives up material on ${toSquare}.`,
         highlightSquares: [toSquare],
         arrowVectors: [[fromSquare, toSquare, 'rgba(167, 139, 250, 0.85)']],
         importanceTier: meta.tier,
       });
       calcItems.push({
-        ruleName: seeNet > 0 ? 'Material Won' : 'Material Lost',
+        ruleName: seeNet > 0 ? 'Material Captured' : 'Material Given Up',
         baseScoreCp: baseScore,
         phaseWeightMultiplier: phase,
         finalPointsCp: seeNet > 0 ? finalScore : -finalScore,
@@ -368,26 +360,27 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     }
   }
 
-  // ── Outpost tile (knight or bishop on outpost square) ─────────────────────
+  // 2. OUTPOST
   const movedPiece = boardAfter.get(toSquare as Square);
   if (movedPiece && (movedPiece.type === 'n' || movedPiece.type === 'b') && movedPiece.color === moverColor) {
     if (isOutpostSquare(boardAfter, toSquare as Square, moverColor)) {
       const ruleId = movedPiece.type === 'n' ? 'KNIGHT_OUTPOST' : 'BISHOP_OUTPOST';
       const meta = RULE_METADATA[ruleId];
       const finalCp = Math.round(meta.baseScoreCp * phase);
+      const pieceName = movedPiece.type === 'n' ? 'Knight' : 'Bishop';
       tiles.push({
         ruleId,
-        ruleName: meta.name,
+        ruleName: `${pieceName} Outpost on ${toSquare}`,
         category: meta.category,
         rawDeltaCp: meta.baseScoreCp,
         weightedPointsCp: finalCp,
-        principleSummary: meta.principle,
+        principleSummary: `Anchors the ${pieceName.toLowerCase()} on ${toSquare}, supported by a pawn where enemy pawns cannot drive it away.`,
         highlightSquares: [toSquare],
         arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
         importanceTier: meta.tier,
       });
       calcItems.push({
-        ruleName: meta.name,
+        ruleName: `${pieceName} Outpost (${toSquare})`,
         baseScoreCp: meta.baseScoreCp,
         phaseWeightMultiplier: phase,
         finalPointsCp: finalCp,
@@ -395,32 +388,34 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     }
   }
 
-  // ── Concrete threat tile ─────────────────────────────────────────────────
-  if (input.concreteThreats.length > 0) {
+  // 3. CONCRETE THREAT
+  if (input.concreteThreats && input.concreteThreats.length > 0) {
     const top = input.concreteThreats[0];
     const meta = RULE_METADATA.CONCRETE_THREAT;
-    const baseScore = Math.max(top.gainCp, 30);  // floor for visibility
+    const baseScore = Math.max(top.gainCp, 30);
     const finalScore = Math.round(baseScore * phase);
+    const targetPieceName = pieceFullName(top.piece);
+    const enemySideName = moverColor === 'w' ? 'Black' : 'White';
     tiles.push({
       ruleId: 'CONCRETE_THREAT',
-      ruleName: `Threat on ${top.piece.toUpperCase()}${top.target ? ` at ${top.target}` : ''}`,
+      ruleName: `Attacks ${targetPieceName} on ${top.target}`,
       category: meta.category,
       rawDeltaCp: baseScore,
       weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
+      principleSummary: `Creates an immediate attack against ${enemySideName}'s ${targetPieceName.toLowerCase()} on ${top.target}.`,
       highlightSquares: [top.target],
       arrowVectors: [[toSquare, top.target, 'rgba(248, 113, 113, 0.85)']],
       importanceTier: meta.tier,
     });
     calcItems.push({
-      ruleName: `Threat on ${top.piece.toUpperCase()}`,
+      ruleName: `Threat on ${targetPieceName}`,
       baseScoreCp: baseScore,
       phaseWeightMultiplier: phase,
       finalPointsCp: finalScore,
     });
   }
 
-  // ── Center control tile ──────────────────────────────────────────────────
+  // 4. CENTER CONTROL
   const centerSquares: Square[] = ['d4', 'd5', 'e4', 'e5'] as Square[];
   const beforeCount = centerSquares.filter(sq => boardBefore.isAttacked(sq, moverColor)).length;
   const afterCount = centerSquares.filter(sq => boardAfter.isAttacked(sq, moverColor)).length;
@@ -429,17 +424,18 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     const meta = RULE_METADATA.CENTER_CONTROL;
     const baseScore = meta.baseScoreCp * centerDelta;
     const finalScore = Math.round(baseScore * phase);
+    const controlledSquares = centerSquares.filter(sq => boardAfter.isAttacked(sq, moverColor));
     tiles.push({
       ruleId: 'CENTER_CONTROL',
-      ruleName: meta.name,
+      ruleName: 'Central Control',
       category: meta.category,
       rawDeltaCp: baseScore,
       weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
-      highlightSquares: centerSquares.filter(sq => boardAfter.isAttacked(sq, moverColor)).map(s => s as string),
-      arrowVectors: centerDelta > 0
-        ? [[fromSquare, toSquare, 'rgba(52, 211, 153, 0.85)']]
-        : [],
+      principleSummary: centerDelta > 0
+        ? `Increases attacks on the center squares (${controlledSquares.join(', ')}).`
+        : `Reduces coverage over central squares.`,
+      highlightSquares: controlledSquares.map(s => s as string),
+      arrowVectors: centerDelta > 0 ? [[fromSquare, toSquare, 'rgba(52, 211, 153, 0.85)']] : [],
       importanceTier: meta.tier,
     });
     calcItems.push({
@@ -450,7 +446,7 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     });
   }
 
-  // ── Open file tile (rook or queen on open file) ──────────────────────────
+  // 5. OPEN FILE
   if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'q')) {
     const file = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
     const filePawns = boardAfter.findPiece({ type: 'p', color: moverColor as any })
@@ -460,13 +456,14 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     if (filePawns.length === 0 && enemyFilePawns.length === 0) {
       const meta = RULE_METADATA.OPEN_FILE;
       const finalScore = Math.round(meta.baseScoreCp * phase);
+      const pieceName = movedPiece.type === 'r' ? 'Rook' : 'Queen';
       tiles.push({
         ruleId: 'OPEN_FILE',
-        ruleName: meta.name,
+        ruleName: `${pieceName} on Open ${toSquare[0].toUpperCase()}-File`,
         category: meta.category,
         rawDeltaCp: meta.baseScoreCp,
         weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
+        principleSummary: `Places the ${pieceName.toLowerCase()} on the fully open ${toSquare[0]}-file to pressure enemy lines.`,
         highlightSquares: [toSquare],
         arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
         importanceTier: meta.tier,
@@ -480,26 +477,27 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     }
   }
 
-  // ── Development tile (minor piece off home rank) ─────────────────────────
+  // 6. DEVELOPMENT (minor piece off home rank)
   if (movedPiece && (movedPiece.type === 'n' || movedPiece.type === 'b')) {
     const homeRank = moverColor === 'w' ? 1 : 8;
     const fromRank = parseInt(fromSquare[1], 10);
     if (fromRank === homeRank) {
       const meta = RULE_METADATA.DEVELOPMENT;
       const finalScore = Math.round(meta.baseScoreCp * phase);
+      const pieceName = movedPiece.type === 'n' ? 'Knight' : 'Bishop';
       tiles.push({
         ruleId: 'DEVELOPMENT',
-        ruleName: meta.name,
+        ruleName: `Develops ${pieceName} to ${toSquare}`,
         category: meta.category,
         rawDeltaCp: meta.baseScoreCp,
         weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
+        principleSummary: `Brings the ${pieceName.toLowerCase()} off its starting rank to ${toSquare} into active play.`,
         highlightSquares: [toSquare],
         arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
         importanceTier: meta.tier,
       });
       calcItems.push({
-        ruleName: meta.name,
+        ruleName: `Develops ${pieceName}`,
         baseScoreCp: meta.baseScoreCp,
         phaseWeightMultiplier: phase,
         finalPointsCp: finalScore,
@@ -507,20 +505,19 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     }
   }
 
-  // ── Check delivered tile ─────────────────────────────────────────────────
+  // 7. CHECK DELIVERED
   if (input.isCheck && !input.isCheckmate) {
     const meta = RULE_METADATA.CHECK_DELIVERED;
     const finalScore = Math.round(meta.baseScoreCp * phase);
-    // Find enemy king square
     const enemyColor = moverColor === 'w' ? 'b' : 'w';
     const enemyKing = boardAfter.findPiece({ type: 'k', color: enemyColor as any })[0];
     tiles.push({
       ruleId: 'CHECK_DELIVERED',
-      ruleName: meta.name,
+      ruleName: `Delivers Check on ${toSquare}`,
       category: meta.category,
       rawDeltaCp: meta.baseScoreCp,
       weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
+      principleSummary: `Attacks the king directly with ${input.moveSan}, forcing an immediate escape move.`,
       highlightSquares: enemyKing ? [enemyKing] : [toSquare],
       arrowVectors: [[fromSquare, toSquare, 'rgba(248, 113, 113, 0.85)']],
       importanceTier: meta.tier,
@@ -533,78 +530,20 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     });
   }
 
-  // ── King-zone attack tile (gain in king-zone attackers) ──────────────────
-  const enemyColor = moverColor === 'w' ? 'b' : 'w';
-  const enemyKingBefore = boardBefore.findPiece({ type: 'k', color: enemyColor as any })[0];
-  const enemyKingAfter = boardAfter.findPiece({ type: 'k', color: enemyColor as any })[0];
-  if (enemyKingAfter) {
-    const kingZoneAfter = computeKingZone(enemyKingAfter);
-    const attackersBefore = kingZoneAfter.filter(sq => boardBefore.isAttacked(sq as Square, moverColor)).length;
-    const attackersAfter = kingZoneAfter.filter(sq => boardAfter.isAttacked(sq as Square, moverColor)).length;
-    const attackerDelta = attackersAfter - attackersBefore;
-    if (attackerDelta >= 2) {
-      const meta = RULE_METADATA.KING_ATTACK;
-      const baseScore = meta.baseScoreCp * attackerDelta;
-      const finalScore = Math.round(baseScore * phase);
-      tiles.push({
-        ruleId: 'KING_ATTACK',
-        ruleName: meta.name,
-        category: meta.category,
-        rawDeltaCp: baseScore,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: kingZoneAfter.slice(0, 4),
-        arrowVectors: [[toSquare, enemyKingAfter, 'rgba(251, 113, 133, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: meta.name,
-        baseScoreCp: baseScore,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── Pawn structure tiles (isolated, doubled, passed) ─────────────────────
+  // 8. PASSED PAWN
   const structAfter = pawnStructureCounts(input.fenAfter, moverColor);
   const structBefore = pawnStructureCounts(input.fenBefore, moverColor);
-
-  if (structAfter.isolated > structBefore.isolated) {
-    const meta = RULE_METADATA.PAWN_ISOLATION;
-    const baseScore = meta.baseScoreCp * (structAfter.isolated - structBefore.isolated);
-    const finalScore = Math.round(baseScore * phase);
-    // Find the isolated pawn square (approximation: the file)
-    tiles.push({
-      ruleId: 'PAWN_ISOLATION',
-      ruleName: meta.name,
-      category: meta.category,
-      rawDeltaCp: baseScore,
-      weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
-      highlightSquares: [toSquare],
-      arrowVectors: [],
-      importanceTier: meta.tier,
-    });
-    calcItems.push({
-      ruleName: meta.name,
-      baseScoreCp: baseScore,
-      phaseWeightMultiplier: phase,
-      finalPointsCp: finalScore,
-    });
-  }
-
   if (structAfter.passed > structBefore.passed) {
     const meta = RULE_METADATA.PAWN_PASSED;
     const baseScore = meta.baseScoreCp * (structAfter.passed - structBefore.passed);
     const finalScore = Math.round(baseScore * phase);
     tiles.push({
       ruleId: 'PAWN_PASSED',
-      ruleName: meta.name,
+      ruleName: `Passed Pawn Created (${toSquare})`,
       category: meta.category,
       rawDeltaCp: baseScore,
       weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
+      principleSummary: `Creates a passed pawn on ${toSquare} with no opposing pawns blocking its path.`,
       highlightSquares: [toSquare],
       arrowVectors: [[fromSquare, toSquare, 'rgba(251, 191, 36, 0.85)']],
       importanceTier: meta.tier,
@@ -617,296 +556,38 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     });
   }
 
-  // ── Mobility tile (if delta is significant) ──────────────────────────────
-  const mobilityBefore = boardBefore.moves().length;
-  const mobilityAfter = (() => {
-    // Mover's mobility after their own move = count moves they'd have if it were still their turn.
-    // We approximate by toggling side via FEN.
-    try {
-      const fenParts = input.fenAfter.split(' ');
-      fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
-      fenParts[3] = '-';
-      const tmp = new Chess();
-      tmp.load(fenParts.join(' '));
-      return tmp.moves().length;
-    } catch {
-      return boardAfter.moves().length;
-    }
-  })();
-  const mobilityDelta = mobilityAfter - mobilityBefore;
-  if (mobilityDelta >= 5) {
-    const meta = RULE_METADATA.MOBILITY_GAIN;
-    const baseScore = Math.min(20, mobilityDelta);  // cap
-    const finalScore = Math.round(baseScore * phase);
-    tiles.push({
-      ruleId: 'MOBILITY_GAIN',
-      ruleName: meta.name,
-      category: meta.category,
-      rawDeltaCp: baseScore,
-      weightedPointsCp: finalScore,
-      principleSummary: `${meta.principle} (+${mobilityDelta} legal moves)`,
-      highlightSquares: [toSquare],
-      arrowVectors: [],
-      importanceTier: meta.tier,
-    });
-    calcItems.push({
-      ruleName: meta.name,
-      baseScoreCp: baseScore,
-      phaseWeightMultiplier: phase,
-      finalPointsCp: finalScore,
-    });
-  }
-
-  // ── BAD BISHOP RELIEVED (bishop freed from being blocked by own pawns) ───
-  if (movedPiece && movedPiece.type === 'b') {
-    const wasBadBefore = isBadBishop(boardBefore, fromSquare as Square, moverColor);
-    const isBadAfter = isBadBishop(boardAfter, toSquare as Square, moverColor);
-    if (wasBadBefore && !isBadAfter) {
-      const meta = RULE_METADATA.BAD_BISHOP;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'BAD_BISHOP',
-        ruleName: 'Bad Bishop Relieved',
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [toSquare],
-        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Bad Bishop Relieved',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── ROOK ON 7TH RANK ────────────────────────────────────────────────────
-  if (movedPiece && movedPiece.type === 'r') {
-    const toRank = parseInt(toSquare[1], 10);
-    const target7th = moverColor === 'w' ? 7 : 2;
-    if (toRank === target7th) {
-      const meta = RULE_METADATA.ROOK_ON_7TH;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'ROOK_ON_7TH',
-        ruleName: `Rook on ${moverColor === 'w' ? '7th' : '2nd'} Rank`,
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [toSquare],
-        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Rook on 7th Rank',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── SEMI-OPEN FILE (file with no friendly pawns but ≥1 enemy pawn) ───────
-  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'q')) {
-    const fileIdx = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
-    const friendlyPawns = boardAfter.findPiece({ type: 'p', color: moverColor as any })
-      .filter(sq => sq.charCodeAt(0) - 'a'.charCodeAt(0) === fileIdx);
-    const enemyPawns = boardAfter.findPiece({ type: 'p', color: enemyColor as any })
-      .filter(sq => sq.charCodeAt(0) - 'a'.charCodeAt(0) === fileIdx);
-    if (friendlyPawns.length === 0 && enemyPawns.length > 0) {
-      const meta = RULE_METADATA.SEMI_OPEN_FILE;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'SEMI_OPEN_FILE',
-        ruleName: `Semi-Open File (${toSquare[0]}-file)`,
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [toSquare],
-        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Semi-Open File',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── BACKWARD PAWN (pawn that cannot safely advance + no friendly pawn behind) ─
-  if (movedPiece && movedPiece.type === 'p') {
-    const structBeforeBw = pawnStructureCounts(input.fenBefore, moverColor);
-    const structAfterBw = pawnStructureCounts(input.fenAfter, moverColor);
-    if (structAfterBw.backward > structBeforeBw.backward) {
-      const meta = RULE_METADATA.BACKWARD_PAWN;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'BACKWARD_PAWN',
-        ruleName: 'Backward Pawn Created',
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [toSquare],
-        arrowVectors: [],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Backward Pawn',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── PAWN SHIELD STRENGTHENED (pawns in front of king increased) ──────────
-  const shieldBefore = evaluatePawnShield(boardBefore, moverColor);
-  const shieldAfter = evaluatePawnShield(boardAfter, moverColor);
-  if (shieldAfter > shieldBefore) {
-    const meta = RULE_METADATA.PAWN_SHIELD;
-    const finalScore = Math.round(meta.baseScoreCp * phase);
-    const kingSq = findKingSquare(boardAfter, moverColor);
-    tiles.push({
-      ruleId: 'PAWN_SHIELD',
-      ruleName: 'Pawn Shield Strengthened',
-      category: meta.category,
-      rawDeltaCp: meta.baseScoreCp,
-      weightedPointsCp: finalScore,
-      principleSummary: meta.principle,
-      highlightSquares: kingSq ? [kingSq] : [toSquare],
-      arrowVectors: [[fromSquare, toSquare, 'rgba(168, 85, 247, 0.80)']],
-      importanceTier: meta.tier,
-    });
-    calcItems.push({
-      ruleName: 'Pawn Shield Strengthened',
-      baseScoreCp: meta.baseScoreCp,
-      phaseWeightMultiplier: phase,
-      finalPointsCp: finalScore,
-    });
-  }
-
-  // ── KING TROPISM (enemy heavy piece approaching enemy king zone) ─────────
-  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'q')) {
-    const enemyKing = findKingSquare(boardAfter, enemyColor);
-    if (enemyKing) {
-      const distBefore = chebyshevDistance(fromSquare, enemyKing);
-      const distAfter = chebyshevDistance(toSquare, enemyKing);
-      if (distAfter < distBefore && distAfter <= 3) {
-        const meta = RULE_METADATA.KING_TROPISM;
-        const baseScore = meta.baseScoreCp * (4 - distAfter);
-        const finalScore = Math.round(baseScore * phase);
-        tiles.push({
-          ruleId: 'KING_TROPISM',
-          ruleName: 'King Proximity Attack',
-          category: meta.category,
-          rawDeltaCp: baseScore,
-          weightedPointsCp: finalScore,
-          principleSummary: meta.principle,
-          highlightSquares: [enemyKing, toSquare],
-          arrowVectors: [[toSquare, enemyKing, 'rgba(251, 113, 133, 0.85)']],
-          importanceTier: meta.tier,
-        });
-        calcItems.push({
-          ruleName: 'King Proximity Attack',
-          baseScoreCp: baseScore,
-          phaseWeightMultiplier: phase,
-          finalPointsCp: finalScore,
-        });
-      }
-    }
-  }
-
-  // ── SPACE ADVANTAGE (pawn advanced past the 4th rank into enemy territory) ─
-  if (movedPiece && movedPiece.type === 'p') {
-    const toRank = parseInt(toSquare[1], 10);
-    const advancedRank = moverColor === 'w' ? toRank >= 5 : toRank <= 4;
-    if (advancedRank) {
-      const meta = RULE_METADATA.SPACE_ADVANTAGE;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'SPACE_ADVANTAGE',
-        ruleName: 'Space Advantage Gained',
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [toSquare],
-        arrowVectors: [[fromSquare, toSquare, 'rgba(52, 211, 153, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Space Advantage',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── PIN CREATED (move creates a pin on an enemy piece) ───────────────────
-  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'b' || movedPiece.type === 'q')) {
-    const pinCreated = detectPinCreated(boardAfter, toSquare as Square, moverColor, enemyColor);
-    if (pinCreated) {
-      const meta = RULE_METADATA.PIN_CREATED;
-      const finalScore = Math.round(meta.baseScoreCp * phase);
-      tiles.push({
-        ruleId: 'PIN_CREATED',
-        ruleName: 'Pin Created',
-        category: meta.category,
-        rawDeltaCp: meta.baseScoreCp,
-        weightedPointsCp: finalScore,
-        principleSummary: meta.principle,
-        highlightSquares: [pinCreated.pinned, pinCreated.behind],
-        arrowVectors: [[toSquare, pinCreated.pinned, 'rgba(248, 113, 113, 0.85)']],
-        importanceTier: meta.tier,
-      });
-      calcItems.push({
-        ruleName: 'Pin Created',
-        baseScoreCp: meta.baseScoreCp,
-        phaseWeightMultiplier: phase,
-        finalPointsCp: finalScore,
-      });
-    }
-  }
-
-  // ── PURE CALCULATION FALLBACK (CRITICAL: zero-unexplained-moves guarantee) ─
-  // If NO strategic or tactical rule fired, we do NOT output 0 tiles and let
-  // the LLM guess.  We explicitly ground the move in the engine's concrete
-  // calculation (PV line), so the user always sees WHY the move was played.
+  // 9. HUMAN-READABLE FALLBACK (When no single static rule dominates)
+  // CRITICAL: zero-unexplained-moves guarantee. If NO strategic or tactical
+  // rule fired, we do NOT output 0 tiles. We ground the move in piece-aware,
+  // square-aware language describing what it concretely does.
   if (tiles.length === 0) {
-    const pvLine = input.pvLineSan && input.pvLineSan.length > 0
-      ? input.pvLineSan.slice(0, 5).join(' ')
+    const pvSummary = input.pvLineSan && input.pvLineSan.length > 0
+      ? input.pvLineSan.slice(0, 4).join(' ')
       : input.moveSan;
     const netEvalChange = input.evalAfterCp - input.evalBeforeCp;
+    const humanSummary = buildHumanFallbackSummary(
+      input.moveSan, movedPiece?.type, fromSquare, toSquare, pvSummary, moverColor,
+    );
+
     tiles.push({
       ruleId: 'PURE_CALCULATION',
-      ruleName: 'Deep Calculation Line (PV-Driven)',
+      ruleName: 'Tactical Continuation',
       category: 'tactics',
       rawDeltaCp: Math.abs(netEvalChange),
       weightedPointsCp: netEvalChange,
-      principleSummary: `Driven by concrete calculation line: ${pvLine}. No single positional rule dominates — this move is played for its tactical/concrete merit in the engine's lookahead.`,
+      principleSummary: humanSummary,
       highlightSquares: [toSquare],
       arrowVectors: [[fromSquare, toSquare, 'rgba(148, 163, 184, 0.80)']],
       importanceTier: 'PRIMARY',
     });
     calcItems.push({
-      ruleName: 'Deep Calculation Line (PV)',
+      ruleName: 'Tactical Continuation',
       baseScoreCp: Math.abs(netEvalChange),
       phaseWeightMultiplier: 1.0,
       finalPointsCp: netEvalChange,
     });
   }
 
-  // ── Build the calculation breakdown ──────────────────────────────────────
   const whitePositivePoints = calcItems
     .filter(i => i.finalPointsCp > 0)
     .reduce((s, i) => s + i.finalPointsCp, 0);
@@ -928,164 +609,89 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
 }
 
 // ---------------------------------------------------------------------------
-// King zone helper (3×3 around king)
+// Piece-name helper
 // ---------------------------------------------------------------------------
-function computeKingZone(kingSquare: string): string[] {
-  const file = kingSquare.charCodeAt(0) - 'a'.charCodeAt(0);
-  const rank = parseInt(kingSquare[1], 10) - 1;
-  const out: string[] = [];
-  for (let df = -1; df <= 1; df++) {
-    for (let dr = -1; dr <= 1; dr++) {
-      const f = file + df, r = rank + dr;
-      if (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
-        out.push(`${'abcdefgh'[f]}${r + 1}`);
-      }
-    }
+function pieceFullName(p?: string): string {
+  switch (p?.toLowerCase()) {
+    case 'p': return 'Pawn';
+    case 'n': return 'Knight';
+    case 'b': return 'Bishop';
+    case 'r': return 'Rook';
+    case 'q': return 'Queen';
+    case 'k': return 'King';
+    default: return 'Piece';
   }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
-// Helper: find king square
+// Human fallback summary — describes what a quiet move concretely does,
+// using the actual piece type, source/target square, and PV line.
 // ---------------------------------------------------------------------------
-function findKingSquare(board: Chess, color: 'w' | 'b'): string | null {
-  const kings = board.findPiece({ type: 'k', color: color as any });
-  return kings.length > 0 ? kings[0] : null;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: Chebyshev distance (king-walk distance) between two squares
-// ---------------------------------------------------------------------------
-function chebyshevDistance(sq1: string, sq2: string): number {
-  const f1 = sq1.charCodeAt(0) - 'a'.charCodeAt(0);
-  const r1 = parseInt(sq1[1], 10) - 1;
-  const f2 = sq2.charCodeAt(0) - 'a'.charCodeAt(0);
-  const r2 = parseInt(sq2[1], 10) - 1;
-  return Math.max(Math.abs(f1 - f2), Math.abs(r1 - r2));
-}
-
-// ---------------------------------------------------------------------------
-// Helper: is bishop "bad" (blocked by ≥3 own pawns on same color complex)
-// ---------------------------------------------------------------------------
-function isBadBishop(board: Chess, square: Square, color: 'w' | 'b'): boolean {
-  const piece = board.get(square);
-  if (!piece || piece.type !== 'b' || piece.color !== color) return false;
-  const sqFile = square.charCodeAt(0) - 'a'.charCodeAt(0);
-  const sqRank = parseInt(square[1], 10) - 1;
-  const isLightSquare = (sqFile + sqRank) % 2 === 0;
-
-  let sameColorPawnCount = 0;
-  const pawns = board.findPiece({ type: 'p', color: color as any });
-  for (const psq of pawns) {
-    const pf = psq.charCodeAt(0) - 'a'.charCodeAt(0);
-    const pr = parseInt(psq[1], 10) - 1;
-    const pawnIsLight = (pf + pr) % 2 === 0;
-    if (pawnIsLight === isLightSquare) sameColorPawnCount++;
-  }
-  return sameColorPawnCount >= 3;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: evaluate pawn shield (count pawns directly in front of king)
-// ---------------------------------------------------------------------------
-function evaluatePawnShield(board: Chess, color: 'w' | 'b'): number {
-  const kingSq = findKingSquare(board, color);
-  if (!kingSq) return 0;
-  const kingFile = kingSq.charCodeAt(0) - 'a'.charCodeAt(0);
-  const kingRank = parseInt(kingSq[1], 10) - 1;
-  // Shield is in front of king (toward enemy)
-  const shieldRank = color === 'w' ? kingRank + 1 : kingRank - 1;
-  if (shieldRank < 0 || shieldRank > 7) return 0;
-  let count = 0;
-  for (const df of [-1, 0, 1]) {
-    const f = kingFile + df;
-    if (f >= 0 && f <= 7) {
-      const sq = `${'abcdefgh'[f]}${shieldRank + 1}` as Square;
-      const p = board.get(sq);
-      if (p && p.type === 'p' && p.color === color) count++;
-    }
-  }
-  return count;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: detect pin created by a slider on `toSquare`
-// Returns { pinned, behind } if the slider attacks an enemy piece that has a
-// more valuable enemy piece directly behind it on the same line.
-// ---------------------------------------------------------------------------
-function detectPinCreated(
-  board: Chess,
-  sliderSq: Square,
+function buildHumanFallbackSummary(
+  moveSan: string,
+  pieceType: string | undefined,
+  fromSq: string,
+  toSq: string,
+  pvStr: string,
   moverColor: 'w' | 'b',
-  enemyColor: 'w' | 'b'
-): { pinned: string; behind: string } | null {
-  const slider = board.get(sliderSq);
-  if (!slider) return null;
-  const type = slider.type;
-  if (type !== 'r' && type !== 'b' && type !== 'q') return null;
-
-  // Determine ray directions
-  const directions: Array<[number, number]> = [];
-  if (type === 'r' || type === 'q') {
-    directions.push([0, 1], [0, -1], [1, 0], [-1, 0]);
+): string {
+  // Castling (SAN starts with 'O')
+  if (moveSan.startsWith('O-O-O')) {
+    return `${moverColor === 'w' ? 'White' : 'Black'} castles queenside, tucking the king to safety and connecting the rooks.`;
   }
-  if (type === 'b' || type === 'q') {
-    directions.push([1, 1], [1, -1], [-1, 1], [-1, -1]);
+  if (moveSan.startsWith('O-O')) {
+    return `${moverColor === 'w' ? 'White' : 'Black'} castles kingside, tucking the king to safety and connecting the rooks.`;
   }
 
-  const sFile = sliderSq.charCodeAt(0) - 'a'.charCodeAt(0);
-  const sRank = parseInt(sliderSq[1], 10) - 1;
+  // Determine file/rank for richer pawn descriptions
+  const toFile = toSq.charCodeAt(0) - 'a'.charCodeAt(0);
+  const toRank = parseInt(toSq[1], 10);
+  const isCenterFile = toFile >= 3 && toFile <= 4;          // d/e files
+  const isWingFile = toFile <= 1 || toFile >= 6;             // a/b/g/h files
+  const isAdvancedRank = moverColor === 'w' ? toRank >= 5 : toRank <= 4;
 
-  for (const [df, dr] of directions) {
-    let f = sFile + df, r = sRank + dr;
-    let firstEnemySq: string | null = null;
-    let secondPieceSq: string | null = null;
-    // Walk the ray
-    while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
-      const sq = `${'abcdefgh'[f]}${r + 1}`;
-      const p = board.get(sq as Square);
-      if (p) {
-        if (!firstEnemySq) {
-          if (p.color === enemyColor) {
-            firstEnemySq = sq;
-          } else {
-            break; // friendly piece blocks
-          }
-        } else if (!secondPieceSq) {
-          if (p.color === enemyColor) {
-            secondPieceSq = sq;
-            break;
-          } else {
-            break;
-          }
-        }
-      }
-      f += df; r += dr;
+  if (pieceType === 'p') {
+    if (isCenterFile && isAdvancedRank) {
+      return `Pushes the ${toSq[0]}-pawn deep into the center to break up enemy pawn structure, with the line ${pvStr}.`;
     }
-    if (firstEnemySq && secondPieceSq) {
-      // Check if the second piece is more valuable (king or queen) → real pin
-      const behindPiece = board.get(secondPieceSq as Square);
-      const pinnedPiece = board.get(firstEnemySq as Square);
-      if (behindPiece && pinnedPiece) {
-        const behindVal = PIECE_VALUES_USED[behindPiece.type] || 0;
-        const pinnedVal = PIECE_VALUES_USED[pinnedPiece.type] || 0;
-        if (behindVal > pinnedVal || behindPiece.type === 'k') {
-          return { pinned: firstEnemySq, behind: secondPieceSq };
-        }
-      }
+    if (isCenterFile) {
+      return `Advances the center pawn to ${toSq} to contest the central squares and open lines for the pieces behind.`;
     }
+    if (isWingFile && isAdvancedRank) {
+      return `Stages a wing pawn push to ${toSq} to gain space on the flank and cramp the enemy pieces.`;
+    }
+    if (isWingFile) {
+      return `Advances the wing pawn to ${toSq}, preparing to support pieces or create luft for the king.`;
+    }
+    return `Advances the pawn to ${toSq}, adjusting the pawn structure and the line ${pvStr}.`;
   }
-  return null;
+
+  if (pieceType === 'n' || pieceType === 'b') {
+    const pieceName = pieceType === 'n' ? 'knight' : 'bishop';
+    return `Repositions the ${pieceName} from ${fromSq} to ${toSq} to improve its activity, eyeing key squares in the line ${pvStr}.`;
+  }
+  if (pieceType === 'r' || pieceType === 'q') {
+    const pieceName = pieceType === 'r' ? 'rook' : 'queen';
+    return `Reroutes the ${pieceName} from ${fromSq} to ${toSq} to prepare tactical pressure, following the line ${pvStr}.`;
+  }
+  if (pieceType === 'k') {
+    // King walks toward center are notable in endgames; king fleeing is defensive
+    const isCenterWalk = toRank >= 4 && toRank <= 5 && toFile >= 3 && toFile <= 4;
+    if (isCenterWalk) {
+      return `Marches the king to ${toSq} toward the center — typical in endgames where the king becomes an active fighting piece.`;
+    }
+    return `Moves the king to ${toSq} to step out of pressure or improve its defensive footprint.`;
+  }
+  return `Plays ${moveSan} as part of the tactical sequence ${pvStr}.`;
 }
-
-const PIECE_VALUES_USED: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
 
 // ---------------------------------------------------------------------------
 // Anti-hallucination filter — verifies the LLM's text doesn't claim things
-// the symbolic engine proved false.  Specifically guards against the bug
+// the symbolic engine proved false. Specifically guards against the bug
 // documented in the spec: LLM claiming "c6 develops the bishop" when the
 // engine proved is_development=false.
 // ---------------------------------------------------------------------------
+
 export interface HallucinationCheckResult {
   passed: boolean;
   violations: string[];
@@ -1095,16 +701,12 @@ export interface HallucinationCheckResult {
 // ALLOWLIST of strategic concepts the LLM may mention.
 // Each entry maps a regex (concept detection) → required tile ID(s).
 // If the LLM mentions the concept but no matching tile fired → VIOLATION.
-//
-// This is the architectural fix for the "6-rule denylist" gap: instead of
-// listing every possible lie, we list every possible truth and reject
-// anything that doesn't map to a verified tile.
 // ---------------------------------------------------------------------------
 interface ConceptRule {
-  concept: string;                          // human-readable name
-  pattern: RegExp;                          // detects the concept in LLM text
-  requiredTileIds: string[];                // any of these tiles must be present
-  explanation: string;                      // why it's a violation if missing
+  concept: string;
+  pattern: RegExp;
+  requiredTileIds: string[];
+  explanation: string;
 }
 
 const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
@@ -1123,7 +725,7 @@ const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
   {
     concept: 'open file',
     pattern: /\bopen\s+file\b|\bsemi-?open\s+file\b/i,
-    requiredTileIds: ['OPEN_FILE'],
+    requiredTileIds: ['OPEN_FILE', 'SEMI_OPEN_FILE'],
     explanation: 'An open file requires the destination file to contain zero pawns of either color, with a rook or queen occupying it.',
   },
   {
@@ -1159,13 +761,13 @@ const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
   {
     concept: 'concrete threat / fork / pin',
     pattern: /\b(threat(?:s|ening)?|fork|pin|double(?:-|\s)attack|hanging|attack(?:s|ing)?\s+(?:the\s+)?(?:queen|rook|bishop|knight|king))\b/i,
-    requiredTileIds: ['CONCRETE_THREAT', 'CHECK_DELIVERED'],
+    requiredTileIds: ['CONCRETE_THREAT', 'CHECK_DELIVERED', 'PIN_CREATED'],
     explanation: 'A concrete threat requires a winning capture (SEE ≥ 0) available after a null-move. No such capture was detected.',
   },
   {
     concept: 'king attack / king safety',
     pattern: /\b(king\s+(?:attack|safety|expos(?:e|ure)|vulnerab|weak)|attack(?:s|ing)?\s+(?:the\s+)?king|around\s+the\s+king|mating\s+(?:threat|attack|net))\b/i,
-    requiredTileIds: ['KING_ATTACK', 'KING_EXPOSURE', 'CHECK_DELIVERED'],
+    requiredTileIds: ['KING_ATTACK', 'KING_EXPOSURE', 'CHECK_DELIVERED', 'KING_TROPISM'],
     explanation: 'A king attack requires the mover to have gained ≥2 attackers in the enemy king zone, OR a king-safety penalty, OR a check.',
   },
   {
@@ -1176,7 +778,6 @@ const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
   },
   {
     concept: 'check',
-    // Match "check" / "gives check" / "+" but NOT when preceded by negation ("no check", "without check")
     pattern: /\b(?<!no\s)(?<!without\s)(?<!not\s)check(?:s|ing|mating)?\b|\bgives?\s+check\b|\b\+\s*$/mi,
     requiredTileIds: ['CHECK_DELIVERED'],
     explanation: 'A check requires the move to attack the enemy king.',
@@ -1189,16 +790,9 @@ const STRATEGIC_CONCEPT_ALLOWLIST: ConceptRule[] = [
   },
 ];
 
-// Concepts that are NOT yet covered by any tile — these are flagged as
-// "unverifiable" rather than "false", because we can't prove or disprove
-// them with the current symbolic engine.  The LLM should avoid them.
+// Concepts NOT yet covered by any tile — flagged as "unverifiable" rather than
+// "false", because we can't prove or disprove them with the current engine.
 const UNVERIFIABLE_CONCEPTS: ConceptRule[] = [
-  {
-    concept: 'bishop pair',
-    pattern: /\bbishop\s+pair\b|\btwo\s+bishops\b/i,
-    requiredTileIds: [],
-    explanation: 'The bishop pair advantage is not yet tracked by the symbolic engine. Avoid claiming it.',
-  },
   {
     concept: 'luft / king escape square',
     pattern: /\bluft\b|\bking\s+(?:escape|flight)\s+square\b|\bmakes?\s+luft\b/i,
@@ -1269,10 +863,6 @@ const UNVERIFIABLE_CONCEPTS: ConceptRule[] = [
 
 // ---------------------------------------------------------------------------
 // MAIN FILTER — allowlist-based.
-//   For every concept the LLM mentions:
-//     • If it's in the allowlist → require a matching tile (else violation)
-//     • If it's in the unverifiable list → flag as "unverifiable concept"
-//     • If no tiles fired at all → restrict LLM to tactical facts only
 // ---------------------------------------------------------------------------
 export function checkNarrativeAgainstTiles(
   narrative: string,
@@ -1282,14 +872,11 @@ export function checkNarrativeAgainstTiles(
   const violations: string[] = [];
   const text = narrative;
 
-  // ─── Empty-tiles fallback ─────────────────────────────────────────────
-  // If NO tiles fired, the LLM may only mention tactical facts (eval delta,
-  // capture/no-capture, check/mate).  Any strategic claim is a violation.
+  // Empty-tiles fallback
   if (tiles.length === 0) {
     const strategicClaim = STRATEGIC_CONCEPT_ALLOWLIST.some(rule => rule.pattern.test(text));
     const unverifiableClaim = UNVERIFIABLE_CONCEPTS.some(rule => rule.pattern.test(text));
     if (strategicClaim || unverifiableClaim) {
-      // Identify which concepts were mentioned
       const mentioned: string[] = [];
       for (const rule of [...STRATEGIC_CONCEPT_ALLOWLIST, ...UNVERIFIABLE_CONCEPTS]) {
         if (rule.pattern.test(text)) mentioned.push(rule.concept);
@@ -1302,26 +889,23 @@ export function checkNarrativeAgainstTiles(
     }
   }
 
-  // ─── Allowlist enforcement ────────────────────────────────────────────
+  // Allowlist enforcement
   for (const rule of STRATEGIC_CONCEPT_ALLOWLIST) {
     if (!rule.pattern.test(text)) continue;
     const hasTile = rule.requiredTileIds.some(id => tiles.some(t => t.ruleId === id));
     if (!hasTile) {
-      // Special-case: sacrifice / winning-material use SEE in the explanation
       let explanation = rule.explanation;
       if (explanation.includes('SEE_PLACEHOLDER')) {
         explanation = explanation.replace(/SEE_PLACEHOLDER/g, String(input.seeScore));
       }
-      // Special-case: check is allowed if input.isCheck is true (even without tile, e.g. mate)
       if (rule.concept === 'check' && input.isCheck) continue;
-      // Special-case: development is allowed if the move actually developed (verify with engine)
       if (rule.concept === 'piece development') {
         const board = new Chess(input.fenBefore);
         const movedPiece = board.get(input.moveUci.slice(0, 2) as Square);
         if (movedPiece && (movedPiece.type === 'n' || movedPiece.type === 'b')) {
           const homeRank = movedPiece.color === 'w' ? 1 : 8;
           const fromRank = parseInt(input.moveUci[1], 10);
-          if (fromRank === homeRank) continue;  // actually did develop — don't flag
+          if (fromRank === homeRank) continue;
         }
       }
       violations.push(
@@ -1330,7 +914,7 @@ export function checkNarrativeAgainstTiles(
     }
   }
 
-  // ─── Unverifiable concept warning ─────────────────────────────────────
+  // Unverifiable concept warning
   for (const rule of UNVERIFIABLE_CONCEPTS) {
     if (!rule.pattern.test(text)) continue;
     violations.push(

@@ -473,7 +473,7 @@ export function parsePgn(pgn: string): { fen: string; sans: string[]; headers: R
 
 export function movesFromSans(sans: string[]): Array<{ san: string; uci: string; fenBefore: string; fenAfter: string; isCapture: boolean; isCheck: boolean; isCheckmate: boolean; turn: 'white' | 'black' }> {
   const chess = new Chess();
-  const out = [];
+  const out: Array<{ san: string; uci: string; fenBefore: string; fenAfter: string; isCapture: boolean; isCheck: boolean; isCheckmate: boolean; turn: 'white' | 'black' }> = [];
   for (const san of sans) {
     try {
       const fenBefore = chess.fen();
