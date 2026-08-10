@@ -138,6 +138,62 @@ const RULE_METADATA: Record<string, RuleMeta> = {
     baseScoreCp: 10,
     tier: 'MINOR',
   },
+  BAD_BISHOP: {
+    name: 'Bad Bishop Relieved',
+    category: 'piece_activity',
+    principle: 'A bishop blocked by its own pawns on the same color complex is bad; freeing its diagonals restores its power.',
+    baseScoreCp: 35,
+    tier: 'SECONDARY',
+  },
+  ROOK_ON_7TH: {
+    name: 'Rook on 7th Rank',
+    category: 'piece_activity',
+    principle: 'Rooks on the 7th rank (2nd for Black) attack enemy pawns at their base and trap the enemy king.',
+    baseScoreCp: 45,
+    tier: 'PRIMARY',
+  },
+  SEMI_OPEN_FILE: {
+    name: 'Semi-Open File Control',
+    category: 'piece_activity',
+    principle: 'A file with no friendly pawns allows rooks to pressure enemy pawns directly.',
+    baseScoreCp: 20,
+    tier: 'MINOR',
+  },
+  BACKWARD_PAWN: {
+    name: 'Backward Pawn',
+    category: 'pawn_structure',
+    principle: 'A pawn that cannot advance safely and has no pawn behind it is a permanent target.',
+    baseScoreCp: -25,
+    tier: 'SECONDARY',
+  },
+  PAWN_SHIELD: {
+    name: 'King Pawn Shield Strengthened',
+    category: 'king_safety',
+    principle: 'Pawns directly in front of a castled king form an essential barrier against enemy piece attacks.',
+    baseScoreCp: 35,
+    tier: 'SECONDARY',
+  },
+  KING_TROPISM: {
+    name: 'King Proximity Attack',
+    category: 'king_safety',
+    principle: 'Concentrating heavy pieces near the enemy king zone creates mating threats.',
+    baseScoreCp: 30,
+    tier: 'PRIMARY',
+  },
+  SPACE_ADVANTAGE: {
+    name: 'Space Advantage',
+    category: 'space_center',
+    principle: 'Advancing pawns past the 4th rank restricts enemy piece maneuvers and creates room for your pieces.',
+    baseScoreCp: 25,
+    tier: 'MINOR',
+  },
+  PIN_CREATED: {
+    name: 'Pin Created',
+    category: 'tactics',
+    principle: 'Pinning an enemy piece against their king or queen restricts its movement completely.',
+    baseScoreCp: 60,
+    tier: 'PRIMARY',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -209,17 +265,17 @@ function pawnStructureCounts(fen: string, color: 'w' | 'b') {
     const rank = parseInt(sq[1], 10) - 1;
     files[file].push(rank);
   }
-  let isolated = 0, doubled = 0, passed = 0;
+  let isolated = 0, doubled = 0, passed = 0, backward = 0;
+  const enemyColor = color === 'w' ? 'b' : 'w';
+  const enemyPawns = board.findPiece({ type: 'p', color: enemyColor as any });
   for (let f = 0; f < 8; f++) {
     if (files[f].length === 0) continue;
     if (files[f].length >= 2) doubled += files[f].length - 1;
     const left = f > 0 ? files[f - 1].length : 0;
     const right = f < 7 ? files[f + 1].length : 0;
     if (left === 0 && right === 0) isolated++;
-    // Passed: no enemy pawn on same or adjacent files ahead
-    const enemyColor = color === 'w' ? 'b' : 'w';
-    const enemyPawns = board.findPiece({ type: 'p', color: enemyColor as any });
     for (const r of files[f]) {
+      // Passed: no enemy pawn on same or adjacent files ahead
       const isPassed = !enemyPawns.some(esq => {
         const ef = esq.charCodeAt(0) - 'a'.charCodeAt(0);
         const er = parseInt(esq[1], 10) - 1;
@@ -227,9 +283,20 @@ function pawnStructureCounts(fen: string, color: 'w' | 'b') {
         return color === 'w' ? er > r : er < r;
       });
       if (isPassed) passed++;
+      // Backward: no friendly pawn behind (on adjacent files at lower rank for white)
+      // AND an enemy stopper pawn exists ahead on adjacent file
+      const behindRank = color === 'w' ? r - 1 : r + 1;
+      const hasFriendBehind = (left > 0 || right > 0) && files[f-1]?.includes(behindRank) || files[f+1]?.includes(behindRank);
+      const stopperRank = color === 'w' ? r + 2 : r - 2;
+      const hasEnemyStopper = enemyPawns.some(esq => {
+        const ef = esq.charCodeAt(0) - 'a'.charCodeAt(0);
+        const er = parseInt(esq[1], 10) - 1;
+        return Math.abs(ef - f) === 1 && er === stopperRank;
+      });
+      if (!hasFriendBehind && hasEnemyStopper) backward++;
     }
   }
-  return { isolated, doubled, passed };
+  return { isolated, doubled, passed, backward };
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +317,7 @@ export interface SynthesizerInput {
   evalBeforeCp: number;
   evalAfterCp: number;
   bestMoveSan?: string;
+  pvLineSan?: string[];  // Principal variation line (for PURE_CALCULATION fallback)
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +657,255 @@ export function generateTilesAndCalc(input: SynthesizerInput): {
     });
   }
 
+  // ── BAD BISHOP RELIEVED (bishop freed from being blocked by own pawns) ───
+  if (movedPiece && movedPiece.type === 'b') {
+    const wasBadBefore = isBadBishop(boardBefore, fromSquare as Square, moverColor);
+    const isBadAfter = isBadBishop(boardAfter, toSquare as Square, moverColor);
+    if (wasBadBefore && !isBadAfter) {
+      const meta = RULE_METADATA.BAD_BISHOP;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'BAD_BISHOP',
+        ruleName: 'Bad Bishop Relieved',
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [toSquare],
+        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Bad Bishop Relieved',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── ROOK ON 7TH RANK ────────────────────────────────────────────────────
+  if (movedPiece && movedPiece.type === 'r') {
+    const toRank = parseInt(toSquare[1], 10);
+    const target7th = moverColor === 'w' ? 7 : 2;
+    if (toRank === target7th) {
+      const meta = RULE_METADATA.ROOK_ON_7TH;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'ROOK_ON_7TH',
+        ruleName: `Rook on ${moverColor === 'w' ? '7th' : '2nd'} Rank`,
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [toSquare],
+        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Rook on 7th Rank',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── SEMI-OPEN FILE (file with no friendly pawns but ≥1 enemy pawn) ───────
+  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'q')) {
+    const fileIdx = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+    const friendlyPawns = boardAfter.findPiece({ type: 'p', color: moverColor as any })
+      .filter(sq => sq.charCodeAt(0) - 'a'.charCodeAt(0) === fileIdx);
+    const enemyPawns = boardAfter.findPiece({ type: 'p', color: enemyColor as any })
+      .filter(sq => sq.charCodeAt(0) - 'a'.charCodeAt(0) === fileIdx);
+    if (friendlyPawns.length === 0 && enemyPawns.length > 0) {
+      const meta = RULE_METADATA.SEMI_OPEN_FILE;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'SEMI_OPEN_FILE',
+        ruleName: `Semi-Open File (${toSquare[0]}-file)`,
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [toSquare],
+        arrowVectors: [[fromSquare, toSquare, 'rgba(96, 165, 250, 0.85)']],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Semi-Open File',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── BACKWARD PAWN (pawn that cannot safely advance + no friendly pawn behind) ─
+  if (movedPiece && movedPiece.type === 'p') {
+    const structBeforeBw = pawnStructureCounts(input.fenBefore, moverColor);
+    const structAfterBw = pawnStructureCounts(input.fenAfter, moverColor);
+    if (structAfterBw.backward > structBeforeBw.backward) {
+      const meta = RULE_METADATA.BACKWARD_PAWN;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'BACKWARD_PAWN',
+        ruleName: 'Backward Pawn Created',
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [toSquare],
+        arrowVectors: [],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Backward Pawn',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── PAWN SHIELD STRENGTHENED (pawns in front of king increased) ──────────
+  const shieldBefore = evaluatePawnShield(boardBefore, moverColor);
+  const shieldAfter = evaluatePawnShield(boardAfter, moverColor);
+  if (shieldAfter > shieldBefore) {
+    const meta = RULE_METADATA.PAWN_SHIELD;
+    const finalScore = Math.round(meta.baseScoreCp * phase);
+    const kingSq = findKingSquare(boardAfter, moverColor);
+    tiles.push({
+      ruleId: 'PAWN_SHIELD',
+      ruleName: 'Pawn Shield Strengthened',
+      category: meta.category,
+      rawDeltaCp: meta.baseScoreCp,
+      weightedPointsCp: finalScore,
+      principleSummary: meta.principle,
+      highlightSquares: kingSq ? [kingSq] : [toSquare],
+      arrowVectors: [[fromSquare, toSquare, 'rgba(168, 85, 247, 0.80)']],
+      importanceTier: meta.tier,
+    });
+    calcItems.push({
+      ruleName: 'Pawn Shield Strengthened',
+      baseScoreCp: meta.baseScoreCp,
+      phaseWeightMultiplier: phase,
+      finalPointsCp: finalScore,
+    });
+  }
+
+  // ── KING TROPISM (enemy heavy piece approaching enemy king zone) ─────────
+  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'q')) {
+    const enemyKing = findKingSquare(boardAfter, enemyColor);
+    if (enemyKing) {
+      const distBefore = chebyshevDistance(fromSquare, enemyKing);
+      const distAfter = chebyshevDistance(toSquare, enemyKing);
+      if (distAfter < distBefore && distAfter <= 3) {
+        const meta = RULE_METADATA.KING_TROPISM;
+        const baseScore = meta.baseScoreCp * (4 - distAfter);
+        const finalScore = Math.round(baseScore * phase);
+        tiles.push({
+          ruleId: 'KING_TROPISM',
+          ruleName: 'King Proximity Attack',
+          category: meta.category,
+          rawDeltaCp: baseScore,
+          weightedPointsCp: finalScore,
+          principleSummary: meta.principle,
+          highlightSquares: [enemyKing, toSquare],
+          arrowVectors: [[toSquare, enemyKing, 'rgba(251, 113, 133, 0.85)']],
+          importanceTier: meta.tier,
+        });
+        calcItems.push({
+          ruleName: 'King Proximity Attack',
+          baseScoreCp: baseScore,
+          phaseWeightMultiplier: phase,
+          finalPointsCp: finalScore,
+        });
+      }
+    }
+  }
+
+  // ── SPACE ADVANTAGE (pawn advanced past the 4th rank into enemy territory) ─
+  if (movedPiece && movedPiece.type === 'p') {
+    const toRank = parseInt(toSquare[1], 10);
+    const advancedRank = moverColor === 'w' ? toRank >= 5 : toRank <= 4;
+    if (advancedRank) {
+      const meta = RULE_METADATA.SPACE_ADVANTAGE;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'SPACE_ADVANTAGE',
+        ruleName: 'Space Advantage Gained',
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [toSquare],
+        arrowVectors: [[fromSquare, toSquare, 'rgba(52, 211, 153, 0.85)']],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Space Advantage',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── PIN CREATED (move creates a pin on an enemy piece) ───────────────────
+  if (movedPiece && (movedPiece.type === 'r' || movedPiece.type === 'b' || movedPiece.type === 'q')) {
+    const pinCreated = detectPinCreated(boardAfter, toSquare as Square, moverColor, enemyColor);
+    if (pinCreated) {
+      const meta = RULE_METADATA.PIN_CREATED;
+      const finalScore = Math.round(meta.baseScoreCp * phase);
+      tiles.push({
+        ruleId: 'PIN_CREATED',
+        ruleName: 'Pin Created',
+        category: meta.category,
+        rawDeltaCp: meta.baseScoreCp,
+        weightedPointsCp: finalScore,
+        principleSummary: meta.principle,
+        highlightSquares: [pinCreated.pinned, pinCreated.behind],
+        arrowVectors: [[toSquare, pinCreated.pinned, 'rgba(248, 113, 113, 0.85)']],
+        importanceTier: meta.tier,
+      });
+      calcItems.push({
+        ruleName: 'Pin Created',
+        baseScoreCp: meta.baseScoreCp,
+        phaseWeightMultiplier: phase,
+        finalPointsCp: finalScore,
+      });
+    }
+  }
+
+  // ── PURE CALCULATION FALLBACK (CRITICAL: zero-unexplained-moves guarantee) ─
+  // If NO strategic or tactical rule fired, we do NOT output 0 tiles and let
+  // the LLM guess.  We explicitly ground the move in the engine's concrete
+  // calculation (PV line), so the user always sees WHY the move was played.
+  if (tiles.length === 0) {
+    const pvLine = input.pvLineSan && input.pvLineSan.length > 0
+      ? input.pvLineSan.slice(0, 5).join(' ')
+      : input.moveSan;
+    const netEvalChange = input.evalAfterCp - input.evalBeforeCp;
+    tiles.push({
+      ruleId: 'PURE_CALCULATION',
+      ruleName: 'Deep Calculation Line (PV-Driven)',
+      category: 'tactics',
+      rawDeltaCp: Math.abs(netEvalChange),
+      weightedPointsCp: netEvalChange,
+      principleSummary: `Driven by concrete calculation line: ${pvLine}. No single positional rule dominates — this move is played for its tactical/concrete merit in the engine's lookahead.`,
+      highlightSquares: [toSquare],
+      arrowVectors: [[fromSquare, toSquare, 'rgba(148, 163, 184, 0.80)']],
+      importanceTier: 'PRIMARY',
+    });
+    calcItems.push({
+      ruleName: 'Deep Calculation Line (PV)',
+      baseScoreCp: Math.abs(netEvalChange),
+      phaseWeightMultiplier: 1.0,
+      finalPointsCp: netEvalChange,
+    });
+  }
+
   // ── Build the calculation breakdown ──────────────────────────────────────
   const whitePositivePoints = calcItems
     .filter(i => i.finalPointsCp > 0)
@@ -627,6 +944,141 @@ function computeKingZone(kingSquare: string): string[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Helper: find king square
+// ---------------------------------------------------------------------------
+function findKingSquare(board: Chess, color: 'w' | 'b'): string | null {
+  const kings = board.findPiece({ type: 'k', color: color as any });
+  return kings.length > 0 ? kings[0] : null;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Chebyshev distance (king-walk distance) between two squares
+// ---------------------------------------------------------------------------
+function chebyshevDistance(sq1: string, sq2: string): number {
+  const f1 = sq1.charCodeAt(0) - 'a'.charCodeAt(0);
+  const r1 = parseInt(sq1[1], 10) - 1;
+  const f2 = sq2.charCodeAt(0) - 'a'.charCodeAt(0);
+  const r2 = parseInt(sq2[1], 10) - 1;
+  return Math.max(Math.abs(f1 - f2), Math.abs(r1 - r2));
+}
+
+// ---------------------------------------------------------------------------
+// Helper: is bishop "bad" (blocked by ≥3 own pawns on same color complex)
+// ---------------------------------------------------------------------------
+function isBadBishop(board: Chess, square: Square, color: 'w' | 'b'): boolean {
+  const piece = board.get(square);
+  if (!piece || piece.type !== 'b' || piece.color !== color) return false;
+  const sqFile = square.charCodeAt(0) - 'a'.charCodeAt(0);
+  const sqRank = parseInt(square[1], 10) - 1;
+  const isLightSquare = (sqFile + sqRank) % 2 === 0;
+
+  let sameColorPawnCount = 0;
+  const pawns = board.findPiece({ type: 'p', color: color as any });
+  for (const psq of pawns) {
+    const pf = psq.charCodeAt(0) - 'a'.charCodeAt(0);
+    const pr = parseInt(psq[1], 10) - 1;
+    const pawnIsLight = (pf + pr) % 2 === 0;
+    if (pawnIsLight === isLightSquare) sameColorPawnCount++;
+  }
+  return sameColorPawnCount >= 3;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: evaluate pawn shield (count pawns directly in front of king)
+// ---------------------------------------------------------------------------
+function evaluatePawnShield(board: Chess, color: 'w' | 'b'): number {
+  const kingSq = findKingSquare(board, color);
+  if (!kingSq) return 0;
+  const kingFile = kingSq.charCodeAt(0) - 'a'.charCodeAt(0);
+  const kingRank = parseInt(kingSq[1], 10) - 1;
+  // Shield is in front of king (toward enemy)
+  const shieldRank = color === 'w' ? kingRank + 1 : kingRank - 1;
+  if (shieldRank < 0 || shieldRank > 7) return 0;
+  let count = 0;
+  for (const df of [-1, 0, 1]) {
+    const f = kingFile + df;
+    if (f >= 0 && f <= 7) {
+      const sq = `${'abcdefgh'[f]}${shieldRank + 1}` as Square;
+      const p = board.get(sq);
+      if (p && p.type === 'p' && p.color === color) count++;
+    }
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: detect pin created by a slider on `toSquare`
+// Returns { pinned, behind } if the slider attacks an enemy piece that has a
+// more valuable enemy piece directly behind it on the same line.
+// ---------------------------------------------------------------------------
+function detectPinCreated(
+  board: Chess,
+  sliderSq: Square,
+  moverColor: 'w' | 'b',
+  enemyColor: 'w' | 'b'
+): { pinned: string; behind: string } | null {
+  const slider = board.get(sliderSq);
+  if (!slider) return null;
+  const type = slider.type;
+  if (type !== 'r' && type !== 'b' && type !== 'q') return null;
+
+  // Determine ray directions
+  const directions: Array<[number, number]> = [];
+  if (type === 'r' || type === 'q') {
+    directions.push([0, 1], [0, -1], [1, 0], [-1, 0]);
+  }
+  if (type === 'b' || type === 'q') {
+    directions.push([1, 1], [1, -1], [-1, 1], [-1, -1]);
+  }
+
+  const sFile = sliderSq.charCodeAt(0) - 'a'.charCodeAt(0);
+  const sRank = parseInt(sliderSq[1], 10) - 1;
+
+  for (const [df, dr] of directions) {
+    let f = sFile + df, r = sRank + dr;
+    let firstEnemySq: string | null = null;
+    let secondPieceSq: string | null = null;
+    // Walk the ray
+    while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+      const sq = `${'abcdefgh'[f]}${r + 1}`;
+      const p = board.get(sq as Square);
+      if (p) {
+        if (!firstEnemySq) {
+          if (p.color === enemyColor) {
+            firstEnemySq = sq;
+          } else {
+            break; // friendly piece blocks
+          }
+        } else if (!secondPieceSq) {
+          if (p.color === enemyColor) {
+            secondPieceSq = sq;
+            break;
+          } else {
+            break;
+          }
+        }
+      }
+      f += df; r += dr;
+    }
+    if (firstEnemySq && secondPieceSq) {
+      // Check if the second piece is more valuable (king or queen) → real pin
+      const behindPiece = board.get(secondPieceSq as Square);
+      const pinnedPiece = board.get(firstEnemySq as Square);
+      if (behindPiece && pinnedPiece) {
+        const behindVal = PIECE_VALUES_USED[behindPiece.type] || 0;
+        const pinnedVal = PIECE_VALUES_USED[pinnedPiece.type] || 0;
+        if (behindVal > pinnedVal || behindPiece.type === 'k') {
+          return { pinned: firstEnemySq, behind: secondPieceSq };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+const PIECE_VALUES_USED: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
 
 // ---------------------------------------------------------------------------
 // Anti-hallucination filter — verifies the LLM's text doesn't claim things

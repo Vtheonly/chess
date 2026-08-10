@@ -210,6 +210,7 @@ export const useGameStore = create<GameState>()(
           evalBeforeCp: eBefore.cp,
           evalAfterCp: eAfter.cp,
           bestMoveSan: best.bestMoveSan,
+          pvLineSan: best.pv,
         });
 
         const moveRecord: ChessMove = {
@@ -485,6 +486,7 @@ export const useGameStore = create<GameState>()(
             concreteThreats: threats,
             evalBeforeCp: eBefore.cp, evalAfterCp: eAfter.cp,
             bestMoveSan: best.bestMoveSan,
+            pvLineSan: best.pv,
           });
 
           records.push({
